@@ -2,7 +2,7 @@ import { Package, Clock, CheckCircle, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const orders = [
-  {
+  { 
     id: "ORD-001",
     customer: "Ahmad Rizki",
     product: "Kaos Polos Putih - 50 pcs",
