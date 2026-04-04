@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Paperclip, X, Bot, User, Sparkles } from "lucide-react";
+import { Send, Paperclip, X, Bot, User, Sparkles, Zap, GitCompare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/widgets/button";
 import { Textarea } from "@/components/widgets/textarea";
@@ -9,35 +9,152 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   imageUrl?: string;
+  model?: "huggingface" | "pollinations" | "both";
   timestamp: Date;
 }
 
+interface ComparisonResult {
+  id: string;
+  prompt: string;
+  huggingface?: { imageBase64?: string; mimeType?: string; loading: boolean; error?: string };
+  pollinations?: { imageUrl?: string; loading: boolean; error?: string };
+  timestamp: Date;
+}
+
+type Mode = "single" | "compare";
+type SingleModel = "huggingface" | "pollinations";
+
+// ✅ SATU endpoint saja, sesuai n8n workflow UNIFIED
+const WEBHOOK_URL = "/webhook-test/chat-design";
+
 const examplePrompts = [
-  "Buatkan desain jersey bola warna merah dengan aksen hitam",
-  "Desain kemeja kantor biru navy dengan logo perusahaan",
-  "Kaos tim outing dengan tema pantai dan warna cerah",
+  "Jersey bola merah hitam modern",
+  "Kemeja kantor biru navy elegan",
+  "Kaos pantai warna cerah tropis",
 ];
 
-// Format messages untuk API
-const formatMessagesForApi = (messages: Message[]) => {
-  return messages
+const formatMessagesForApi = (messages: Message[]) =>
+  messages
     .filter((msg) => !msg.imageUrl)
-    .map(({ role, content }) => ({
-      role,
-      parts: [{ text: content }],
-    }));
+    .map(({ role, content }) => ({ role, parts: [{ text: content }] }));
+
+const fixImageUrl = (url: string): string =>
+  url.startsWith("=") ? url.slice(1) : url;
+
+// Pollinations lazy generate — img tag langsung dengan retry
+// Pakai timestamp sebagai cache buster supaya browser re-request
+function PollinationsImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [imgKey, setImgKey] = useState(0);
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const attemptRef = useRef(0);
+  const maxRetries = 12;
+  const retryDelay = 5000;
+
+  useEffect(() => {
+    setStatus("loading");
+    attemptRef.current = 0;
+    setImgKey(0);
+  }, [src]);
+
+  const handleError = () => {
+    if (attemptRef.current < maxRetries) {
+      attemptRef.current += 1;
+      setTimeout(() => setImgKey((k) => k + 1), retryDelay);
+    } else {
+      setStatus("error");
+    }
+  };
+
+  // URL langsung ke Pollinations (bukan proxy) — img tag tidak kena CORS restriction
+  const directUrl = src.startsWith("/pollinations")
+    ? src.replace("/pollinations", "https://image.pollinations.ai")
+    : src;
+
+  if (status === "error") {
+    return (
+      <div className="flex flex-col items-center gap-2 px-3 text-center">
+        <p className="text-xs text-destructive">Gagal memuat gambar</p>
+        <a href={directUrl} target="_blank" rel="noopener noreferrer"
+          className="text-xs text-violet-400 underline">Buka di tab baru ↗</a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full h-full min-h-[200px]">
+      {status === "loading" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10">
+          <div className="flex gap-1">
+            {[0, 150, 300].map((delay) => (
+              <span key={delay} className="h-2 w-2 rounded-full bg-violet-400 animate-bounce"
+                style={{ animationDelay: `${delay}ms` }} />
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {attemptRef.current > 0
+              ? `Menunggu... (${attemptRef.current}/${maxRetries})`
+              : "Generating..."}
+          </span>
+        </div>
+      )}
+      <img
+        key={imgKey}
+        src={`${directUrl}&_r=${imgKey}`}
+        alt={alt}
+        className={className}
+        style={{ opacity: status === "loaded" ? 1 : 0, position: status === "loaded" ? "relative" : "absolute" }}
+        onLoad={() => setStatus("loaded")}
+        onError={handleError}
+      />
+    </div>
+  );
+}
+
+// Satu fungsi call webhook, bedanya hanya field model
+const callWebhook = async (
+  prompt: string,
+  model: "huggingface" | "pollinations" | "both",
+  messages: Message[]
+) => {
+  const lastMessage: Message = {
+    id: Date.now().toString(),
+    role: "user",
+    content: `/generate ${prompt}`,
+    timestamp: new Date(),
+  };
+
+  const response = await fetch(WEBHOOK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
+    },
+    body: JSON.stringify({
+      messages: formatMessagesForApi(messages),
+      lastMessage,
+      model, // ← n8n pakai field ini untuk routing ke HF / Pollinations / Both
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Error: ${response.status}`);
+  const text = await response.text();
+  if (!text.trim()) throw new Error("Empty response");
+  return JSON.parse(text);
 };
 
 export default function Chat() {
+  const [mode, setMode] = useState<Mode>("compare");
+  const [selectedModel, setSelectedModel] = useState<SingleModel>("huggingface");
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
       role: "assistant",
       content:
-        "Halo! Saya adalah Jabat AI, asisten desain konveksi Anda. Ceritakan desain apa yang ingin Anda buat hari ini? 🎨\n\nGunakan perintah /generate di awal pesan untuk langsung membuat gambar desain.",
+        "Halo! Saya adalah Jabat AI 🎨\n\nGunakan mode **Perbandingan** untuk membandingkan hasil dua model sekaligus, atau pilih satu model di mode **Single**.\n\nKetik /generate diikuti deskripsi desain Anda!",
       timestamp: new Date(),
     },
   ]);
+  const [comparisons, setComparisons] = useState<ComparisonResult[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -46,7 +163,7 @@ export default function Chat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, comparisons]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -55,6 +172,9 @@ export default function Chat() {
     reader.onload = () => setPreviewImage(reader.result as string);
     reader.readAsDataURL(file);
   };
+
+  const isGenerateCommand = (text: string) =>
+    text.trim().toLowerCase().startsWith("/generate");
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -73,54 +193,117 @@ export default function Chat() {
     setPreviewImage(null);
     setIsLoading(true);
 
+    const isGenerate = isGenerateCommand(input);
+    const cleanPrompt = input.replace(/\/generate/i, "").trim();
+
     try {
-      const webhookUrl = "/webhook-test/chat-design";
-      const apiMessages = formatMessagesForApi(newMessages);
-
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
-        body: JSON.stringify({
-          messages: apiMessages,
-          lastMessage: userMessage,
-        }),
-      });
-
-      if (!response.ok) throw new Error(`Error: ${response.status}`);
-
-      const responseText = await response.text();
-      if (!responseText.trim()) throw new Error("Empty response");
-
-      const data = JSON.parse(responseText);
-
-      if (data.type === "image") {
-        setMessages((prev) => [
+      if (isGenerate && mode === "compare") {
+        // ── Mode perbandingan: kirim model "both" ke 1 webhook ──
+        const compId = Date.now().toString();
+        setComparisons((prev) => [
           ...prev,
           {
-            id: Date.now().toString(),
-            role: "assistant",
-            content: data.imageUrl
-              ? "Berikut desain yang sudah saya buat untuk Anda:"
-              : "Maaf, gagal membuat gambar. Coba lagi ya.",
-            imageUrl: data.imageUrl,
+            id: compId,
+            prompt: cleanPrompt,
+            huggingface: { loading: true },
+            pollinations: { loading: true },
             timestamp: new Date(),
           },
         ]);
-      } else if (data.type === "text") {
+
         setMessages((prev) => [
           ...prev,
           {
             id: Date.now().toString(),
             role: "assistant",
-            content: data.content || "Maaf, saya tidak bisa memproses itu.",
+            content: `Membandingkan dua model untuk: "${cleanPrompt}"`,
+            model: "both",
+            timestamp: new Date(),
+          },
+        ]);
+
+        try {
+          const data = await callWebhook(cleanPrompt, "both", newMessages);
+
+          setComparisons((prev) =>
+            prev.map((c) =>
+              c.id !== compId
+                ? c
+                : {
+                    ...c,
+                    huggingface: data.imageBase64
+                      ? { loading: false, imageBase64: data.imageBase64, mimeType: data.mimeType || "image/jpeg" }
+                      : { loading: false, error: "Gagal generate" },
+                    pollinations: data.imageUrl
+                      ? { loading: false, imageUrl: fixImageUrl(data.imageUrl) }
+                      : { loading: false, error: "Gagal generate" },
+                  }
+            )
+          );
+        } catch {
+          setComparisons((prev) =>
+            prev.map((c) =>
+              c.id !== compId
+                ? c
+                : {
+                    ...c,
+                    huggingface: { loading: false, error: "Gagal generate" },
+                    pollinations: { loading: false, error: "Gagal generate" },
+                  }
+            )
+          );
+        }
+      } else if (isGenerate && mode === "single") {
+        // ── Mode single: kirim model yang dipilih ──
+        const data = await callWebhook(cleanPrompt, selectedModel, newMessages);
+
+        let finalImageUrl: string | undefined;
+        if (data.imageUrl) finalImageUrl = fixImageUrl(data.imageUrl);
+        else if (data.imageBase64)
+          finalImageUrl = `data:${data.mimeType || "image/jpeg"};base64,${data.imageBase64}`;
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: finalImageUrl
+              ? `Hasil dari ${selectedModel === "huggingface" ? "Stable Diffusion" : "Pollinations Flux"}:`
+              : "Maaf, gagal membuat gambar.",
+            imageUrl: finalImageUrl,
+            model: selectedModel,
             timestamp: new Date(),
           },
         ]);
       } else {
-        throw new Error("Unexpected response format");
+        // ── Chat biasa (tanpa /generate) ──
+        const response = await fetch(WEBHOOK_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true",
+          },
+          body: JSON.stringify({
+            messages: formatMessagesForApi(newMessages),
+            lastMessage: userMessage,
+            model: "huggingface",
+          }),
+        });
+
+        if (!response.ok) throw new Error(`Error: ${response.status}`);
+        const text = await response.text();
+        if (!text.trim()) throw new Error("Empty response");
+        const data = JSON.parse(text);
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: data.content || "Maaf, tidak bisa memproses itu.",
+            timestamp: new Date(),
+          },
+        ]);
       }
     } catch (error) {
       setMessages((prev) => [
@@ -130,7 +313,7 @@ export default function Chat() {
           role: "assistant",
           content: `Maaf, terjadi kesalahan: ${
             error instanceof Error ? error.message : "Unknown error"
-          }. Silakan coba lagi.`,
+          }`,
           timestamp: new Date(),
         },
       ]);
@@ -146,6 +329,78 @@ export default function Chat() {
     }
   };
 
+  const renderComparison = (comp: ComparisonResult) => (
+    <div key={comp.id} className="mx-auto max-w-3xl">
+      <p className="text-xs text-muted-foreground mb-3 text-center">
+        Perbandingan:{" "}
+        <span className="font-medium text-foreground">"{comp.prompt}"</span>
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {/* HuggingFace */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/40">
+            <div className="h-2 w-2 rounded-full bg-orange-400" />
+            <span className="text-xs font-semibold">Stable Diffusion</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">HuggingFace</span>
+          </div>
+          <div className="aspect-square bg-muted/20 flex items-center justify-center">
+            {comp.huggingface?.loading ? (
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex gap-1">
+                  {[0, 150, 300].map((delay) => (
+                    <span key={delay} className="h-2 w-2 rounded-full bg-orange-400 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground">Generating...</span>
+              </div>
+            ) : comp.huggingface?.error ? (
+              <p className="text-xs text-destructive px-3 text-center">{comp.huggingface.error}</p>
+            ) : comp.huggingface?.imageBase64 ? (
+              <img
+                src={`data:${comp.huggingface.mimeType};base64,${comp.huggingface.imageBase64}`}
+                alt="HuggingFace result"
+                className="w-full h-full object-cover"
+                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+              />
+            ) : null}
+          </div>
+        </div>
+
+        {/* Pollinations */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/40">
+            <div className="h-2 w-2 rounded-full bg-violet-400" />
+            <span className="text-xs font-semibold">Flux</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">Pollinations</span>
+          </div>
+          <div className="aspect-square bg-muted/20 flex items-center justify-center">
+            {comp.pollinations?.loading ? (
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex gap-1">
+                  {[0, 150, 300].map((delay) => (
+                    <span key={delay} className="h-2 w-2 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground">Generating...</span>
+              </div>
+            ) : comp.pollinations?.error ? (
+              <p className="text-xs text-destructive px-3 text-center">{comp.pollinations.error}</p>
+            ) : comp.pollinations?.imageUrl ? (
+              <PollinationsImage
+                src={comp.pollinations.imageUrl}
+                alt="Pollinations result"
+                className="w-full h-full object-cover"
+              />
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground text-right mt-1">
+        {comp.timestamp.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+      </p>
+    </div>
+  );
+
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col bg-background">
       {/* Header */}
@@ -157,9 +412,70 @@ export default function Chat() {
           <p className="text-sm font-semibold leading-none">Jabat AI</p>
           <p className="text-xs text-muted-foreground">Asisten Desain Konveksi</p>
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-xs text-muted-foreground">Online</span>
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
+            <button
+              onClick={() => setMode("compare")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                mode === "compare"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <GitCompare className="h-3.5 w-3.5" />
+              Perbandingan
+            </button>
+            <button
+              onClick={() => setMode("single")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                mode === "single"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Single
+            </button>
+          </div>
+
+          {/* Model selector (single mode only) */}
+          {mode === "single" && (
+            <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
+              <button
+                onClick={() => setSelectedModel("huggingface")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                  selectedModel === "huggingface"
+                    ? "bg-orange-500 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span className="h-2 w-2 rounded-full bg-orange-400" />
+                Stable Diffusion
+              </button>
+              <button
+                onClick={() => setSelectedModel("pollinations")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                  selectedModel === "pollinations"
+                    ? "bg-violet-500 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span className="h-2 w-2 rounded-full bg-violet-400" />
+                Flux
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs text-muted-foreground">Online</span>
+          </div>
         </div>
       </div>
 
@@ -169,12 +485,8 @@ export default function Chat() {
           {messages.map((message) => (
             <div
               key={message.id}
-              className={cn(
-                "flex gap-3",
-                message.role === "user" ? "flex-row-reverse" : "flex-row"
-              )}
+              className={cn("flex gap-3", message.role === "user" ? "flex-row-reverse" : "flex-row")}
             >
-              {/* Avatar */}
               <div
                 className={cn(
                   "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
@@ -189,8 +501,6 @@ export default function Chat() {
                   <User className="h-4 w-4 text-muted-foreground" />
                 )}
               </div>
-
-              {/* Bubble */}
               <div
                 className={cn(
                   "flex max-w-[78%] flex-col gap-2 rounded-2xl px-4 py-3 text-sm shadow-sm",
@@ -199,48 +509,36 @@ export default function Chat() {
                     : "bg-primary text-primary-foreground rounded-tr-sm"
                 )}
               >
-                {/* Image preview (user upload) */}
                 {message.imageUrl && message.role === "user" && (
-                  <img
-                    src={message.imageUrl}
-                    alt="Uploaded reference"
-                    className="mb-1 max-h-40 w-auto rounded-lg object-cover"
-                  />
+                  <img src={message.imageUrl} alt="Uploaded" className="mb-1 max-h-40 w-auto rounded-lg object-cover" />
                 )}
-
-                <p className="leading-relaxed whitespace-pre-wrap">
-                  {message.content}
-                </p>
-
-                {/* Generated image */}
+                <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 {message.imageUrl && message.role === "assistant" && (
                   <div className="mt-2 overflow-hidden rounded-xl border border-border">
                     <img
                       src={message.imageUrl}
-                      alt="Generated Design"
+                      alt="Generated"
                       className="w-full"
+                      onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
                     />
                   </div>
                 )}
-
                 <span
                   className={cn(
                     "text-[10px] self-end",
-                    message.role === "assistant"
-                      ? "text-muted-foreground"
-                      : "text-primary-foreground/60"
+                    message.role === "assistant" ? "text-muted-foreground" : "text-primary-foreground/60"
                   )}
                 >
-                  {message.timestamp.toLocaleTimeString("id-ID", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {message.timestamp.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
                 </span>
               </div>
             </div>
           ))}
 
-          {/* Loading dots */}
+          {/* Comparison results */}
+          {comparisons.map((comp) => renderComparison(comp))}
+
+          {/* Loading */}
           {isLoading && (
             <div className="flex gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
@@ -248,21 +546,12 @@ export default function Chat() {
               </div>
               <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3 shadow-sm">
                 <div className="flex gap-1">
-                  <span
-                    className="h-2 w-2 rounded-full bg-primary animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <span
-                    className="h-2 w-2 rounded-full bg-primary animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <span
-                    className="h-2 w-2 rounded-full bg-primary animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  />
+                  {[0, 150, 300].map((delay) => (
+                    <span key={delay} className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                  ))}
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  Membuat desain...
+                  {mode === "compare" ? "Membandingkan dua model..." : "Membuat desain..."}
                 </span>
               </div>
             </div>
@@ -272,18 +561,16 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Example prompts — only on first message */}
+      {/* Example prompts */}
       {messages.length === 1 && (
         <div className="border-t border-border bg-muted/30 px-4 py-3">
           <div className="mx-auto max-w-3xl">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">
-              💡 Coba contoh prompt:
-            </p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">💡 Coba contoh prompt:</p>
             <div className="flex flex-wrap gap-2">
               {examplePrompts.map((prompt, i) => (
                 <button
                   key={i}
-                  onClick={() => setInput(prompt)}
+                  onClick={() => setInput(`/generate ${prompt}`)}
                   className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted hover:border-primary/40"
                 >
                   {prompt}
@@ -294,16 +581,12 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Image preview strip */}
+      {/* Image preview */}
       {previewImage && (
         <div className="border-t border-border bg-card px-4 pt-3">
           <div className="mx-auto max-w-3xl">
             <div className="relative inline-block">
-              <img
-                src={previewImage}
-                alt="Preview"
-                className="h-16 w-16 rounded-lg object-cover border border-border"
-              />
+              <img src={previewImage} alt="Preview" className="h-16 w-16 rounded-lg object-cover border border-border" />
               <button
                 onClick={() => setPreviewImage(null)}
                 className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow"
@@ -315,44 +598,32 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Input area */}
+      {/* Input */}
       <div className="border-t border-border bg-card px-4 py-4">
         <div className="mx-auto flex max-w-3xl gap-2">
-          {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Upload gambar referensi"
           >
             <Paperclip className="h-4 w-4" />
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleImageUpload}
-          />
-
-          {/* Textarea */}
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
           <div className="relative flex-1">
             <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Deskripsikan desain atau gunakan /generate..."
+              placeholder={
+                mode === "compare"
+                  ? "Gunakan /generate untuk membandingkan dua model..."
+                  : `Gunakan /generate dengan ${selectedModel === "huggingface" ? "Stable Diffusion" : "Flux"}...`
+              }
               className="min-h-[42px] max-h-32 resize-none rounded-xl bg-background pr-4 text-sm"
               rows={1}
               disabled={isLoading}
             />
           </div>
-
-          {/* Send button */}
-          <Button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="h-10 w-10 shrink-0 rounded-xl p-0"
-          >
+          <Button onClick={handleSend} disabled={!input.trim() || isLoading} className="h-10 w-10 shrink-0 rounded-xl p-0">
             <Send className="h-4 w-4" />
           </Button>
         </div>
