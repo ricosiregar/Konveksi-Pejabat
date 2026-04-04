@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -12,9 +12,17 @@ import {
   Package,
   Clock,
   Plus,
+  Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useCart } from "@/context/CartContext";
+import { supabase } from "@/lib/supabase";
+import {
+  getSessions,
+  deleteSession,
+  formatRelativeTime,
+  type ChatSession,
+} from "@/services/chat_service";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
@@ -25,20 +33,76 @@ const navItems = [
   { icon: Settings, label: "Pengaturan", path: "/settings" },
 ];
 
-// Dummy history chat — nanti bisa diganti dengan state/context real
-const chatHistory = [
-  { id: "1", label: "Jersey merah hitam tim A", time: "Hari ini" },
-  { id: "2", label: "Kemeja kantor biru navy", time: "Kemarin" },
-  { id: "3", label: "Kaos outing pantai", time: "2 hari lalu" },
-  { id: "4", label: "Seragam batik perusahaan", time: "Minggu lalu" },
-];
-
 export function DashboardSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { getCartCount } = useCart();
   const cartCount = getCartCount();
   const location = useLocation();
+  const navigate = useNavigate();
   const isOnChat = location.pathname === "/chat";
+
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setUserId(data.user.id);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (userId && isOnChat) {
+      loadHistory();
+    }
+  }, [userId, isOnChat]);
+
+  useEffect(() => {
+    if (!userId || !isOnChat) return;
+
+    const channel = supabase
+      .channel("chat_sessions_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "chat_sessions",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => loadHistory()
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, isOnChat]);
+
+  const loadHistory = async () => {
+    if (!userId) return;
+    setLoadingHistory(true);
+    const data = await getSessions(userId);
+    setSessions(data);
+    setLoadingHistory(false);
+  };
+
+  const handleNewChat = () => {
+    navigate("/chat", { state: { newSession: Date.now() } });
+  };
+
+  const handleDeleteSession = async (
+    e: React.MouseEvent,
+    sessionId: string
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await deleteSession(sessionId);
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+  };
+
+  const handleLoadSession = (session: ChatSession) => {
+    navigate("/chat", { state: { sessionId: session.id } });
+  };
 
   return (
     <aside
@@ -87,16 +151,16 @@ export function DashboardSidebar() {
         ))}
       </nav>
 
-      {/* Chat History Section — only visible when not collapsed & on /chat */}
+      {/* Chat History */}
       {!collapsed && isOnChat && (
         <div className="flex flex-col flex-1 overflow-hidden px-3 pb-3">
-          {/* Divider + header */}
           <div className="flex items-center justify-between py-2 mt-1">
             <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/40">
               <Clock className="h-3.5 w-3.5" />
               <span>Riwayat Chat</span>
             </div>
             <button
+              onClick={handleNewChat}
               title="Chat baru"
               className="flex h-6 w-6 items-center justify-center rounded-md text-sidebar-foreground/40 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
@@ -104,26 +168,50 @@ export function DashboardSidebar() {
             </button>
           </div>
 
-          {/* History list */}
           <div className="flex flex-col gap-0.5 overflow-y-auto flex-1">
-            {chatHistory.map((chat) => (
-              <button
-                key={chat.id}
-                className="group flex w-full flex-col items-start rounded-lg px-3 py-2 text-left transition-colors hover:bg-sidebar-accent"
-              >
-                <span className="line-clamp-1 text-xs font-medium text-sidebar-foreground/80 group-hover:text-sidebar-foreground">
-                  {chat.label}
-                </span>
-                <span className="text-[10px] text-sidebar-foreground/40">
-                  {chat.time}
-                </span>
-              </button>
-            ))}
+            {loadingHistory ? (
+              <div className="flex flex-col gap-1 mt-1">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-10 rounded-lg bg-sidebar-accent/40 animate-pulse" />
+                ))}
+              </div>
+            ) : sessions.length === 0 ? (
+              <p className="text-[11px] text-sidebar-foreground/30 text-center mt-4">
+                Belum ada riwayat chat
+              </p>
+            ) : (
+              sessions.map((session) => (
+                // ✅ Ganti button luar jadi div untuk hindari button-in-button
+                <div
+                  key={session.id}
+                  onClick={() => handleLoadSession(session)}
+                  onMouseEnter={() => setHoveredId(session.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  className="group flex w-full items-start justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-sidebar-accent cursor-pointer"
+                >
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="line-clamp-1 text-xs font-medium text-sidebar-foreground/80 group-hover:text-sidebar-foreground">
+                      {session.title}
+                    </span>
+                    <span className="text-[10px] text-sidebar-foreground/40">
+                      {formatRelativeTime(session.updated_at)}
+                    </span>
+                  </div>
+                  {hoveredId === session.id && (
+                    <button
+                      onClick={(e) => handleDeleteSession(e, session.id)}
+                      className="ml-1 shrink-0 flex h-5 w-5 items-center justify-center rounded text-sidebar-foreground/40 hover:text-destructive transition-colors"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
 
-      {/* Spacer when not on chat page */}
       {!isOnChat && <div className="flex-1" />}
 
       {/* Collapse button */}

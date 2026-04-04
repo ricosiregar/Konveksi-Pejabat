@@ -7,6 +7,7 @@ import {
   Package,
   Eye,
   RefreshCw,
+  ImageIcon,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -27,54 +28,22 @@ type Order = {
   total_price: number;
   status: "pending" | "confirmed" | "processing" | "completed";
   items: OrderItem[];
+  design_image_url?: string;
   created_at: string;
 };
 
-const statusConfig: Record<
-  string,
-  { label: string; icon: any; badge: string; dot: string }
-> = {
-  pending: {
-    label: "Menunggu",
-    icon: Clock,
-    badge: "bg-yellow-100 text-yellow-700 border-yellow-200",
-    dot: "bg-yellow-400",
-  },
-  confirmed: {
-    label: "Dikonfirmasi",
-    icon: CheckCircle,
-    badge: "bg-blue-100 text-blue-700 border-blue-200",
-    dot: "bg-blue-400",
-  },
-  processing: {
-    label: "Diproses",
-    icon: Loader2,
-    badge: "bg-purple-100 text-purple-700 border-purple-200",
-    dot: "bg-purple-400",
-  },
-  completed: {
-    label: "Selesai",
-    icon: CheckCircle,
-    badge: "bg-green-100 text-green-700 border-green-200",
-    dot: "bg-green-400",
-  },
+const statusConfig: Record<string, { label: string; icon: any; badge: string; dot: string }> = {
+  pending: { label: "Menunggu", icon: Clock, badge: "bg-yellow-100 text-yellow-700 border-yellow-200", dot: "bg-yellow-400" },
+  confirmed: { label: "Dikonfirmasi", icon: CheckCircle, badge: "bg-blue-100 text-blue-700 border-blue-200", dot: "bg-blue-400" },
+  processing: { label: "Diproses", icon: Loader2, badge: "bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-400" },
+  completed: { label: "Selesai", icon: CheckCircle, badge: "bg-green-100 text-green-700 border-green-200", dot: "bg-green-400" },
 };
 
 const formatPrice = (price: number) =>
-  new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    minimumFractionDigits: 0,
-  }).format(price);
+  new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(price);
 
 const formatDate = (dateStr: string) =>
-  new Intl.DateTimeFormat("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(dateStr));
+  new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -83,10 +52,9 @@ export default function AdminOrders() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchOrders();
-  }, []);
+  useEffect(() => { fetchOrders(); }, []);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -94,29 +62,16 @@ export default function AdminOrders() {
       .from("orders")
       .select("*")
       .order("created_at", { ascending: false });
-
     if (!error && data) setOrders(data);
     setLoading(false);
   };
 
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
     setUpdatingStatus(true);
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: newStatus })
-      .eq("id", orderId);
-
+    const { error } = await supabase.from("orders").update({ status: newStatus }).eq("id", orderId);
     if (!error) {
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === orderId ? { ...o, status: newStatus as Order["status"] } : o
-        )
-      );
-      if (selectedOrder?.id === orderId) {
-        setSelectedOrder((prev) =>
-          prev ? { ...prev, status: newStatus as Order["status"] } : prev
-        );
-      }
+      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: newStatus as Order["status"] } : o));
+      if (selectedOrder?.id === orderId) setSelectedOrder((prev) => prev ? { ...prev, status: newStatus as Order["status"] } : prev);
     }
     setUpdatingStatus(false);
   };
@@ -136,9 +91,7 @@ export default function AdminOrders() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Manajemen Pesanan</h1>
-          <p className="text-gray-500 mt-1">
-            Kelola dan pantau semua pesanan pelanggan
-          </p>
+          <p className="text-gray-500 mt-1">Kelola dan pantau semua pesanan pelanggan</p>
         </div>
         <button
           onClick={fetchOrders}
@@ -165,11 +118,7 @@ export default function AdminOrders() {
       <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => setFilterStatus(null)}
-          className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-            !filterStatus
-              ? "bg-orange-500 text-white border-orange-500"
-              : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"
-          }`}
+          className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${!filterStatus ? "bg-orange-500 text-white border-orange-500" : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"}`}
         >
           Semua ({orders.length})
         </button>
@@ -177,11 +126,7 @@ export default function AdminOrders() {
           <button
             key={key}
             onClick={() => setFilterStatus(key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-              filterStatus === key
-                ? "bg-orange-500 text-white border-orange-500"
-                : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${filterStatus === key ? "bg-orange-500 text-white border-orange-500" : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"}`}
           >
             {cfg.label} ({orders.filter((o) => o.status === key).length})
           </button>
@@ -199,76 +144,64 @@ export default function AdminOrders() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    ID Pesanan
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Pelanggan
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Item
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Total
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Tanggal
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Aksi
-                  </th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ID Pesanan</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Pelanggan</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Item</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Desain</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Total</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tanggal</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((order) => {
                   const cfg = statusConfig[order.status] ?? statusConfig.pending;
-                  const totalQty = order.items.reduce(
-                    (sum, i) => sum + i.quantity,
-                    0
-                  );
+                  const totalQty = order.items.reduce((sum, i) => sum + i.quantity, 0);
                   return (
-                    <tr
-                      key={order.id}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
+                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-5 py-4 font-mono font-semibold text-gray-900 text-xs">
                         #{order.id.slice(0, 8).toUpperCase()}
                       </td>
                       <td className="px-5 py-4">
-                        <p className="font-medium text-gray-900">
-                          {order.customer_name}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {order.customer_phone}
-                        </p>
+                        <p className="font-medium text-gray-900">{order.customer_name}</p>
+                        <p className="text-xs text-gray-400">{order.customer_phone}</p>
                       </td>
                       <td className="px-5 py-4">
                         <p className="text-gray-800">
                           {order.items[0]?.product_name}
-                          {order.items.length > 1 &&
-                            ` +${order.items.length - 1} lainnya`}
+                          {order.items.length > 1 && ` +${order.items.length - 1} lainnya`}
                         </p>
                         <p className="text-xs text-gray-400">{totalQty} pcs</p>
                       </td>
-                      <td className="px-5 py-4 font-semibold text-gray-900">
-                        {formatPrice(order.total_price)}
-                      </td>
+                      {/* Kolom desain */}
                       <td className="px-5 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.badge}`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`}
-                          />
+                        {order.design_image_url ? (
+                          <button onClick={() => setZoomedImage(order.design_image_url!)} className="group relative">
+                            <img
+                              src={order.design_image_url}
+                              alt="Desain"
+                              className="h-12 w-12 rounded-lg object-cover border border-gray-200 group-hover:border-orange-400 transition-all"
+                            />
+                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 rounded-lg transition-opacity flex items-center justify-center">
+                              <Eye className="h-3 w-3 text-white" />
+                            </div>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-1 text-gray-300">
+                            <ImageIcon className="h-4 w-4" />
+                            <span className="text-xs">-</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 font-semibold text-gray-900">{formatPrice(order.total_price)}</td>
+                      <td className="px-5 py-4">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.badge}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
                           {cfg.label}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-gray-500 text-xs">
-                        {formatDate(order.created_at)}
-                      </td>
+                      <td className="px-5 py-4 text-gray-500 text-xs">{formatDate(order.created_at)}</td>
                       <td className="px-5 py-4">
                         <button
                           onClick={() => setSelectedOrder(order)}
@@ -294,6 +227,34 @@ export default function AdminOrders() {
         )}
       </div>
 
+      {/* Zoom image modal */}
+      {zoomedImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setZoomedImage(null)}
+        >
+          <div className="relative max-w-2xl w-full">
+            <img src={zoomedImage} alt="Desain besar" className="w-full rounded-2xl shadow-2xl" />
+            <button
+              onClick={() => setZoomedImage(null)}
+              className="absolute -top-4 -right-4 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow text-gray-600 hover:text-gray-900"
+            >
+              ✕
+            </button>
+            <a
+              href={zoomedImage}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-white/90 py-2 text-sm font-medium text-gray-700 hover:bg-white"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Download Gambar
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Detail Modal */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -305,12 +266,7 @@ export default function AdminOrders() {
                   #{selectedOrder.id.slice(0, 8).toUpperCase()}
                 </p>
               </div>
-              <button
-                onClick={() => setSelectedOrder(null)}
-                className="text-gray-400 hover:text-gray-600 text-xl"
-              >
-                ✕
-              </button>
+              <button onClick={() => setSelectedOrder(null)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
 
             <div className="p-5 space-y-5">
@@ -326,17 +282,11 @@ export default function AdminOrders() {
                 </div>
                 <div>
                   <p className="text-gray-400 text-xs mb-1">Tanggal</p>
-                  <p className="font-semibold">
-                    {formatDate(selectedOrder.created_at)}
-                  </p>
+                  <p className="font-semibold">{formatDate(selectedOrder.created_at)}</p>
                 </div>
                 <div>
                   <p className="text-gray-400 text-xs mb-1">Status</p>
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-                      statusConfig[selectedOrder.status]?.badge
-                    }`}
-                  >
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusConfig[selectedOrder.status]?.badge}`}>
                     {statusConfig[selectedOrder.status]?.label}
                   </span>
                 </div>
@@ -348,26 +298,40 @@ export default function AdminOrders() {
                 )}
               </div>
 
+              {/* Gambar desain */}
+              {selectedOrder.design_image_url && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Desain yang Diinginkan</p>
+                  <div className="rounded-xl overflow-hidden border border-gray-200">
+                    <img
+                      src={selectedOrder.design_image_url}
+                      alt="Desain pesanan"
+                      className="w-full max-h-64 object-contain bg-gray-50"
+                    />
+                  </div>
+                  <a
+                    href={selectedOrder.design_image_url}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs text-orange-500 hover:text-orange-700 font-medium"
+                  >
+                    Download gambar desain ↗
+                  </a>
+                </div>
+              )}
+
               {/* Item pesanan */}
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Item Pesanan
-                </p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Item Pesanan</p>
                 <div className="space-y-2">
                   {selectedOrder.items.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 text-sm"
-                    >
+                    <div key={idx} className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 text-sm">
                       <div>
                         <p className="font-medium">{item.product_name}</p>
-                        <p className="text-xs text-gray-400">
-                          {item.color} • {item.size} • {item.quantity}x
-                        </p>
+                        <p className="text-xs text-gray-400">{item.color} • {item.size} • {item.quantity}x</p>
                       </div>
-                      <p className="font-semibold">
-                        {formatPrice(item.price * item.quantity)}
-                      </p>
+                      <p className="font-semibold">{formatPrice(item.price * item.quantity)}</p>
                     </div>
                   ))}
                 </div>
@@ -376,24 +340,18 @@ export default function AdminOrders() {
               {/* Total */}
               <div className="rounded-xl bg-orange-50 p-4 flex items-center justify-between">
                 <p className="text-sm text-gray-600">Total Pembayaran</p>
-                <p className="text-lg font-bold text-orange-600">
-                  {formatPrice(selectedOrder.total_price)}
-                </p>
+                <p className="text-lg font-bold text-orange-600">{formatPrice(selectedOrder.total_price)}</p>
               </div>
 
               {/* Update Status */}
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Update Status
-                </p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Update Status</p>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.entries(statusConfig).map(([key, cfg]) => (
                     <button
                       key={key}
                       disabled={updatingStatus}
-                      onClick={() =>
-                        handleUpdateStatus(selectedOrder.id, key)
-                      }
+                      onClick={() => handleUpdateStatus(selectedOrder.id, key)}
                       className={`py-2.5 rounded-xl text-xs font-medium border transition-all ${
                         selectedOrder.status === key
                           ? "bg-orange-500 text-white border-orange-500"

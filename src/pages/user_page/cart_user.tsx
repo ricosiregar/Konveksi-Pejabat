@@ -6,6 +6,10 @@ import {
   Minus,
   ArrowRight,
   AlertTriangle,
+  ImagePlus,
+  X,
+  Sparkles,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/widgets/button";
 import {
@@ -42,6 +46,15 @@ export default function Cart() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [removedProducts, setRemovedProducts] = useState<string[]>([]);
 
+  // ── Design image state ──
+  const [designSource, setDesignSource] = useState<"upload" | "ai" | null>(null);
+  const [designFile, setDesignFile] = useState<File | null>(null);
+  const [designPreview, setDesignPreview] = useState<string | null>(null);
+  const [aiImages, setAiImages] = useState<{ hf?: string; poll?: string; prompt: string }[]>([]);
+  const [selectedAiImage, setSelectedAiImage] = useState<string | null>(null);
+  const [loadingAiImages, setLoadingAiImages] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
   const formatPrice = (price: number) =>
     new Intl.NumberFormat("id-ID", {
       style: "currency",
@@ -49,57 +62,128 @@ export default function Cart() {
       minimumFractionDigits: 0,
     }).format(price);
 
-  /* ================= VALIDASI PRODUK ================= */
-
+  /* ── Validasi produk ── */
   useEffect(() => {
     const validateCart = async () => {
       if (cart.length === 0) return;
-
       const productIds = [...new Set(cart.map((i) => i.product.id))];
-
       const { data } = await supabase
         .from("products")
         .select("id, active, name")
         .in("id", productIds);
-
-      const validIds = new Set(
-        data?.filter((p) => p.active).map((p) => p.id) ?? []
-      );
-
-      const removed = cart
-        .filter((i) => !validIds.has(i.product.id))
-        .map((i) => i.product.name);
-
+      const validIds = new Set(data?.filter((p) => p.active).map((p) => p.id) ?? []);
+      const removed = cart.filter((i) => !validIds.has(i.product.id)).map((i) => i.product.name);
       if (removed.length > 0) {
         setRemovedProducts(removed);
-        const filtered = cart.filter((i) => validIds.has(i.product.id));
-        replaceCart(filtered);
+        replaceCart(cart.filter((i) => validIds.has(i.product.id)));
       }
     };
-
     validateCart();
   }, []);
 
-  /* ================= SUBMIT ORDER ================= */
+  /* ── Load riwayat gambar AI dari Supabase ── */
+  useEffect(() => {
+    const loadAiImages = async () => {
+      setLoadingAiImages(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoadingAiImages(false); return; }
 
+      const { data } = await supabase
+        .from("chat_messages")
+        .select("hf_image_base64, hf_mime_type, poll_image_url, prompt, image_url, model")
+        .eq("user_id", user.id)
+        .eq("role", "assistant")
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (data) {
+        const images = data
+          .filter((m) => m.hf_image_base64 || m.poll_image_url || m.image_url)
+          .map((m) => ({
+            hf: m.hf_image_base64
+              ? `data:${m.hf_mime_type || "image/jpeg"};base64,${m.hf_image_base64}`
+              : m.model === "huggingface" && m.image_url
+              ? m.image_url
+              : undefined,
+            poll: m.poll_image_url || (m.model === "pollinations" && m.image_url ? m.image_url : undefined),
+            prompt: m.prompt || "Desain AI",
+          }));
+        setAiImages(images);
+      }
+      setLoadingAiImages(false);
+    };
+    loadAiImages();
+  }, []);
+
+  /* ── Handle upload file ── */
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setDesignFile(file);
+    setSelectedAiImage(null);
+    const reader = new FileReader();
+    reader.onload = () => setDesignPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  /* ── Upload ke Supabase Storage ── */
+  const uploadDesignImage = async (userId: string): Promise<string | null> => {
+    // Kalau pilih dari AI (URL/base64)
+    if (selectedAiImage) {
+      // Kalau base64, upload ke storage
+      if (selectedAiImage.startsWith("data:")) {
+        const base64Data = selectedAiImage.split(",")[1];
+        const blob = await fetch(selectedAiImage).then((r) => r.blob());
+        const fileName = `${userId}/${Date.now()}_ai.jpg`;
+        const { error } = await supabase.storage
+          .from("designs")
+          .upload(fileName, blob, { contentType: "image/jpeg" });
+        if (error) { console.error(error); return null; }
+        const { data } = supabase.storage.from("designs").getPublicUrl(fileName);
+        return data.publicUrl;
+      }
+      // Kalau URL langsung (Pollinations)
+      return selectedAiImage;
+    }
+
+    // Kalau upload file dari device
+    if (designFile) {
+      const ext = designFile.name.split(".").pop();
+      const fileName = `${userId}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage
+        .from("designs")
+        .upload(fileName, designFile, { contentType: designFile.type });
+      if (error) { console.error(error); return null; }
+      const { data } = supabase.storage.from("designs").getPublicUrl(fileName);
+      return data.publicUrl;
+    }
+
+    return null;
+  };
+
+  /* ── Submit order ── */
   const handleSubmitOrder = async () => {
     if (!customerName.trim()) {
       toast({ title: "Nama harus diisi", variant: "destructive" });
       return;
     }
-
     if (!customerPhone.trim()) {
       toast({ title: "Nomor telepon harus diisi", variant: "destructive" });
       return;
     }
 
     setIsSubmitting(true);
+    setIsUploading(true);
 
     try {
-      // ✅ Ambil user dari Supabase Auth langsung
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Upload gambar desain kalau ada
+      let designImageUrl: string | null = null;
+      if (selectedAiImage || designFile) {
+        designImageUrl = await uploadDesignImage(user?.id || "anonymous");
+      }
+      setIsUploading(false);
 
       const { error } = await supabase.from("orders").insert({
         customer_name: customerName,
@@ -108,6 +192,7 @@ export default function Cart() {
         total_price: getCartTotal(),
         status: "pending",
         user_id: user?.id ?? null,
+        design_image_url: designImageUrl,
         items: cart.map((item) => ({
           product_id: item.product.id,
           product_name: item.product.name,
@@ -121,26 +206,18 @@ export default function Cart() {
       if (error) throw error;
 
       replaceCart([]);
-
-      toast({
-        title: "Pesanan berhasil dibuat!",
-        description: "Pesanan Anda sedang diproses.",
-      });
-
+      toast({ title: "Pesanan berhasil dibuat!", description: "Pesanan Anda sedang diproses." });
       navigate("/orders");
     } catch (err) {
       console.error(err);
-      toast({
-        title: "Gagal membuat pesanan",
-        variant: "destructive",
-      });
+      setIsUploading(false);
+      toast({ title: "Gagal membuat pesanan", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  /* ================= CART KOSONG ================= */
-
+  /* ── Cart kosong ── */
   if (cart.length === 0) {
     return (
       <div className="mx-auto max-w-7xl">
@@ -149,9 +226,7 @@ export default function Cart() {
             <ShoppingBag className="h-12 w-12 text-muted-foreground" />
           </div>
           <h2 className="text-xl font-semibold mb-2">Keranjang Kosong</h2>
-          <p className="text-muted-foreground mb-6">
-            Belum ada produk di keranjang Anda
-          </p>
+          <p className="text-muted-foreground mb-6">Belum ada produk di keranjang Anda</p>
           <Button asChild>
             <Link to="/catalog">
               Lihat Katalog
@@ -163,21 +238,17 @@ export default function Cart() {
     );
   }
 
-  /* ================= UI ================= */
+  const currentDesignPreview = selectedAiImage || designPreview;
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
-      {/* Banner produk dihapus */}
       {removedProducts.length > 0 && (
         <div className="flex gap-3 rounded-xl border border-yellow-200 bg-yellow-50 p-4">
           <AlertTriangle className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-yellow-800">
-              Beberapa produk tidak tersedia lagi
-            </p>
+            <p className="font-semibold text-yellow-800">Beberapa produk tidak tersedia lagi</p>
             <p className="text-sm text-yellow-700">
-              Produk berikut telah dihapus dari katalog:{" "}
-              <span className="font-medium">{removedProducts.join(", ")}</span>
+              Produk berikut telah dihapus: <span className="font-medium">{removedProducts.join(", ")}</span>
             </p>
           </div>
         </div>
@@ -185,9 +256,7 @@ export default function Cart() {
 
       <div>
         <h1 className="text-2xl font-bold md:text-3xl">Keranjang Belanja</h1>
-        <p className="mt-1 text-muted-foreground">
-          {getCartCount()} item di keranjang Anda
-        </p>
+        <p className="mt-1 text-muted-foreground">{getCartCount()} item di keranjang Anda</p>
       </div>
 
       <div className="grid gap-8 lg:grid-cols-3">
@@ -210,37 +279,13 @@ export default function Cart() {
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="h-8 w-8"
-                        onClick={() =>
-                          updateQuantity(
-                            item.product.id,
-                            item.selectedColor,
-                            item.selectedSize,
-                            item.quantity - 1
-                          )
-                        }
-                      >
+                      <Button size="icon" variant="outline" className="h-8 w-8"
+                        onClick={() => updateQuantity(item.product.id, item.selectedColor, item.selectedSize, item.quantity - 1)}>
                         <Minus className="h-3 w-3" />
                       </Button>
-                      <span className="w-8 text-center font-medium">
-                        {item.quantity}
-                      </span>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="h-8 w-8"
-                        onClick={() =>
-                          updateQuantity(
-                            item.product.id,
-                            item.selectedColor,
-                            item.selectedSize,
-                            item.quantity + 1
-                          )
-                        }
-                      >
+                      <span className="w-8 text-center font-medium">{item.quantity}</span>
+                      <Button size="icon" variant="outline" className="h-8 w-8"
+                        onClick={() => updateQuantity(item.product.id, item.selectedColor, item.selectedSize, item.quantity + 1)}>
                         <Plus className="h-3 w-3" />
                       </Button>
                     </div>
@@ -248,18 +293,8 @@ export default function Cart() {
                       <span className="font-semibold text-primary">
                         {formatPrice(item.product.price * item.quantity)}
                       </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() =>
-                          removeFromCart(
-                            item.product.id,
-                            item.selectedColor,
-                            item.selectedSize
-                          )
-                        }
-                      >
+                      <Button variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => removeFromCart(item.product.id, item.selectedColor, item.selectedSize)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -268,6 +303,142 @@ export default function Cart() {
               </CardContent>
             </Card>
           ))}
+
+          {/* ── DESIGN IMAGE SECTION ── */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ImagePlus className="h-5 w-5 text-primary" />
+                Tambahkan Desain (Opsional)
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Upload gambar desain atau pilih dari hasil generate AI
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Preview gambar yang dipilih */}
+              {currentDesignPreview && (
+                <div className="relative inline-block">
+                  <img
+                    src={currentDesignPreview}
+                    alt="Design preview"
+                    className="h-40 w-40 rounded-xl object-cover border border-border"
+                  />
+                  <button
+                    onClick={() => {
+                      setDesignPreview(null);
+                      setDesignFile(null);
+                      setSelectedAiImage(null);
+                      setDesignSource(null);
+                    }}
+                    className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {selectedAiImage ? "📷 Dari hasil AI" : "📁 Upload manual"}
+                  </p>
+                </div>
+              )}
+
+              {/* Pilih sumber gambar */}
+              {!currentDesignPreview && (
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Upload manual */}
+                  <label className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border p-4 cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-all">
+                    <Upload className="h-6 w-6 text-muted-foreground" />
+                    <span className="text-xs font-medium text-center">Upload dari Device</span>
+                    <span className="text-[10px] text-muted-foreground">JPG, PNG, WEBP</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                  </label>
+
+                  {/* Pilih dari AI */}
+                  <button
+                    onClick={() => setDesignSource(designSource === "ai" ? null : "ai")}
+                    className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
+                      designSource === "ai"
+                        ? "border-primary bg-primary/5"
+                        : "border-dashed border-border hover:border-primary/50 hover:bg-muted/30"
+                    }`}
+                  >
+                    <Sparkles className="h-6 w-6 text-primary" />
+                    <span className="text-xs font-medium text-center">Dari Hasil AI</span>
+                    <span className="text-[10px] text-muted-foreground">Pilih dari Chat AI</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Grid gambar AI */}
+              {designSource === "ai" && !currentDesignPreview && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">
+                    Pilih gambar dari riwayat Chat AI:
+                  </p>
+                  {loadingAiImages ? (
+                    <div className="flex items-center gap-2 py-4">
+                      <div className="flex gap-1">
+                        {[0, 150, 300].map((d) => (
+                          <span key={d} className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                        ))}
+                      </div>
+                      <span className="text-xs text-muted-foreground">Memuat gambar...</span>
+                    </div>
+                  ) : aiImages.length === 0 ? (
+                    <div className="rounded-xl bg-muted/30 p-4 text-center">
+                      <p className="text-xs text-muted-foreground">
+                        Belum ada gambar dari Chat AI.{" "}
+                        <Link to="/chat" className="text-primary underline">Generate sekarang →</Link>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
+                      {aiImages.map((img, i) => (
+                        <div key={i} className="space-y-1">
+                          {/* HuggingFace */}
+                          {img.hf && (
+                            <button
+                              onClick={() => {
+                                setSelectedAiImage(img.hf!);
+                                setDesignSource(null);
+                              }}
+                              className="group relative w-full aspect-square overflow-hidden rounded-lg border-2 border-transparent hover:border-primary transition-all"
+                            >
+                              <img src={img.hf} alt="HF" className="w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="text-[10px] text-white font-medium">Pilih</span>
+                              </div>
+                              <span className="absolute bottom-1 left-1 bg-orange-500 text-white text-[8px] px-1 rounded">SD</span>
+                            </button>
+                          )}
+                          {/* Pollinations */}
+                          {img.poll && (
+                            <button
+                              onClick={() => {
+                                setSelectedAiImage(img.poll!);
+                                setDesignSource(null);
+                              }}
+                              className="group relative w-full aspect-square overflow-hidden rounded-lg border-2 border-transparent hover:border-primary transition-all"
+                            >
+                              <img src={img.poll} alt="Poll" className="w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="text-[10px] text-white font-medium">Pilih</span>
+                              </div>
+                              <span className="absolute bottom-1 left-1 bg-violet-500 text-white text-[8px] px-1 rounded">Flux</span>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* SUMMARY */}
@@ -278,29 +449,27 @@ export default function Cart() {
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label>Nama *</Label>
-              <Input
-                placeholder="Nama lengkap"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-              />
+              <Input placeholder="Nama lengkap" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Telepon *</Label>
-              <Input
-                placeholder="08xxxxxxxxxx"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-              />
+              <Input placeholder="08xxxxxxxxxx" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Catatan</Label>
-              <Textarea
-                placeholder="Catatan tambahan (opsional)"
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
+              <Textarea placeholder="Catatan tambahan (opsional)" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
+
+            {/* Design indicator */}
+            {currentDesignPreview && (
+              <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2">
+                <img src={currentDesignPreview} alt="design" className="h-8 w-8 rounded object-cover" />
+                <div>
+                  <p className="text-xs font-medium text-green-800">Desain terlampir</p>
+                  <p className="text-[10px] text-green-600">{selectedAiImage ? "Dari AI" : "Upload manual"}</p>
+                </div>
+              </div>
+            )}
 
             <Separator />
 
@@ -313,13 +482,8 @@ export default function Cart() {
               <span className="text-primary">{formatPrice(getCartTotal())}</span>
             </div>
 
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={handleSubmitOrder}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Memproses..." : "Buat Pesanan"}
+            <Button className="w-full" size="lg" onClick={handleSubmitOrder} disabled={isSubmitting}>
+              {isUploading ? "Mengupload desain..." : isSubmitting ? "Memproses..." : "Buat Pesanan"}
             </Button>
 
             <p className="text-xs text-center text-muted-foreground">
