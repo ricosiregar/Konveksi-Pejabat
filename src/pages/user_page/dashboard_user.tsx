@@ -11,6 +11,8 @@ import {
   Package,
   Truck,
   Palette,
+  MapPin,
+  ExternalLink,
 } from "lucide-react";
 
 /* ─── DATA ─────────────────────────────────────────────────────── */
@@ -69,13 +71,6 @@ const STEPS = [
     title: "Terima Produk",
     desc: "Produk dikemas dengan rapi dan dikirim langsung ke alamat Anda di seluruh Indonesia.",
   },
-];
-
-const STATS = [
-  { value: "5.000+", label: "Pelanggan Puas" },
-  { value: "200K+", label: "Pcs Diproduksi" },
-  { value: "8 Tahun", label: "Pengalaman" },
-  { value: "98%", label: "On-Time Delivery" },
 ];
 
 /* ─── HOOK: Intersection Observer ──────────────────────────────── */
@@ -174,7 +169,8 @@ export default function LandingPage() {
         .nav-logo {
           font-family: 'DM Serif Display', serif;
           font-size: 1.25rem;
-color: var(--accent); /* Menggunakan variabel oren yang sudah ada */          text-decoration: none;
+          color: var(--accent);
+          text-decoration: none;
           letter-spacing: -0.02em;
         }
         .nav-logo span { color: var(--accent); }
@@ -248,10 +244,7 @@ color: var(--accent); /* Menggunakan variabel oren yang sudah ada */          te
           color: var(--ink);
           animation: fadeUp 0.6s ease 0.1s both;
         }
-        .hero-title em {
-          font-style: italic;
-          color: var(--accent);
-        }
+        .hero-title em { font-style: italic; color: var(--accent); }
         .hero-sub {
           margin-top: 24px;
           font-size: 1.1rem;
@@ -544,6 +537,112 @@ color: var(--accent); /* Menggunakan variabel oren yang sudah ada */          te
           gap: 12px;
         }
 
+        /* MAP SECTION */
+        .map-section {
+          padding: 96px 5%;
+          background: var(--paper);
+        }
+        .map-inner {
+          display: grid;
+          grid-template-columns: 1fr 360px;
+          gap: 40px;
+          align-items: stretch;
+          margin-top: 48px;
+        }
+        @media (max-width: 900px) {
+          .map-inner { grid-template-columns: 1fr; }
+        }
+        .map-frame-wrap {
+          border-radius: 12px;
+          overflow: hidden;
+          border: 1px solid var(--warm);
+          min-height: 360px;
+        }
+        .map-frame-wrap iframe {
+          width: 100%;
+          height: 100%;
+          min-height: 360px;
+          border: none;
+          display: block;
+        }
+        .map-info-card {
+          background: var(--ink);
+          border-radius: 12px;
+          padding: 32px 28px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          gap: 28px;
+        }
+        .map-info-label {
+          font-size: 0.7rem;
+          font-weight: 600;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: rgba(245,244,240,0.35);
+          margin-bottom: 8px;
+        }
+        .map-info-name {
+          font-family: 'DM Serif Display', serif;
+          font-size: 1.4rem;
+          color: var(--paper);
+          letter-spacing: -0.02em;
+          line-height: 1.2;
+          margin-bottom: 8px;
+        }
+        .map-info-name em { font-style: italic; color: #f0a080; }
+        .map-info-addr {
+          font-size: 0.85rem;
+          color: rgba(245,244,240,0.5);
+          line-height: 1.6;
+          font-weight: 300;
+        }
+        .map-hours {
+          border-top: 1px solid rgba(255,255,255,0.08);
+          padding-top: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .map-hour-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.8rem;
+        }
+        .map-hour-day { color: rgba(245,244,240,0.45); font-weight: 300; }
+        .map-hour-time { color: var(--paper); font-weight: 500; }
+        .map-hour-time.closed { color: rgba(200,65,10,0.7); }
+        .map-btn-wrap {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .btn-maps-primary {
+          display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+          background: var(--accent); color: var(--paper);
+          padding: 12px 20px; border-radius: 100px;
+          font-size: 0.875rem; font-weight: 500;
+          text-decoration: none;
+          transition: background 0.2s, transform 0.15s;
+          font-family: 'DM Sans', sans-serif;
+        }
+        .btn-maps-primary:hover { background: #a53208; transform: scale(1.02); }
+        .map-tip {
+          display: flex; align-items: flex-start; gap: 10px;
+          background: rgba(200,65,10,0.12);
+          border: 1px solid rgba(200,65,10,0.2);
+          border-radius: 10px;
+          padding: 12px 14px;
+        }
+        .map-tip svg { color: #f0a080; flex-shrink: 0; margin-top: 1px; }
+        .map-tip-text {
+          font-size: 0.775rem;
+          color: rgba(245,244,240,0.55);
+          line-height: 1.55;
+          font-weight: 300;
+        }
+
         /* FOOTER */
         .footer {
           background: var(--ink);
@@ -589,33 +688,15 @@ color: var(--accent); /* Menggunakan variabel oren yang sudah ada */          te
               untuk brand Anda
             </h1>
             <p className="hero-sub">
-              Konveksi custom berkualitas tinggi untuk komunitas, tim, dan bisnis.
-              Dari desain hingga pengiriman — kami tangani semuanya.
+              Konveksi custom berkualitas tinggi untuk komunitas. — kami tangani semuanya.
             </p>
-            <div className="hero-actions">
-              <Link to="/catalog" className="btn-primary">
-                Lihat Katalog <ArrowRight size={16} />
-              </Link>
-              <a href="#cara-order" className="btn-ghost">
-                Cara pemesanan <ChevronDown size={14} />
-              </a>
-            </div>
+            <div className="hero-actions" />
           </div>
           <div className="hero-scroll">
             <span>Scroll</span>
             <ChevronDown size={14} />
           </div>
         </section>
-
-        {/* STATS */}
-        <div className="stats">
-          {STATS.map((s) => (
-            <FadeIn key={s.label} className="stat-item">
-              <strong className="stat-value">{s.value}</strong>
-              <span className="stat-label">{s.label}</span>
-            </FadeIn>
-          ))}
-        </div>
 
         {/* ABOUT */}
         <section className="section">
@@ -662,69 +743,91 @@ color: var(--accent); /* Menggunakan variabel oren yang sudah ada */          te
           </div>
         </section>
 
-        {/* FEATURES */}
-        <section className="section features-bg">
-          <FadeIn>
-            <p className="section-label">Keunggulan</p>
-            <h2 className="section-title">
-              Mengapa memilih<br /><em>kami?</em>
-            </h2>
-            <p className="section-desc">
-              Kami berkomitmen pada standar yang tidak kami kompromikan.
-            </p>
-          </FadeIn>
-          <div className="features-grid">
-            {FEATURES.map((f, i) => (
-              <FadeIn key={f.title} delay={i * 60}>
-                <div className="feature-card">
-                  <div className="feature-icon">
-                    <f.icon size={20} />
-                  </div>
-                  <h3 className="feature-title">{f.title}</h3>
-                  <p className="feature-desc">{f.desc}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </section>
-
-        {/* CARA ORDER */}
-        <section className="section" id="cara-order">
-          <FadeIn>
-            <p className="section-label">Cara Order</p>
-            <h2 className="section-title">
-              Proses yang<br /><em>mudah & transparan</em>
-            </h2>
-            <p className="section-desc">
-              Empat langkah sederhana dari konsultasi hingga produk ada di tangan Anda.
-            </p>
-          </FadeIn>
-          <div className="steps-grid">
-            {STEPS.map((s, i) => (
-              <FadeIn key={s.num} delay={i * 100}>
-                <div className="step-card">
-                  <div className="step-num">{s.num}</div>
-                  <div className="step-title">{s.title}</div>
-                  <p className="step-desc">{s.desc}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </section>
-
         {/* CTA */}
         <section className="cta-section">
           <div className="cta-bg" />
           <FadeIn className="cta-content">
             <h2 className="cta-title">
-              Siap mulai<br /><em>produksi?</em>
+              Masih Ragu<br /><em>Untuk Produksi?</em>
             </h2>
             <p className="cta-sub">
-              Konsultasi gratis. Tanpa komitmen. Langsung dengan tim kami.
+              Coba Desain Dulu Ajaa.
             </p>
-            <Link to="/catalog" className="btn-accent">
-              Mulai Pesan <ArrowRight size={16} />
+            <Link to="/chat" className="btn-accent">
+              Desain Sekarang! <ArrowRight size={16} />
             </Link>
+          </FadeIn>
+        </section>
+
+        {/* MAP LOKASI */}
+        <section className="map-section">
+          <FadeIn>
+            <p className="section-label">Lokasi Kami</p>
+            <h2 className="section-title">
+              Kunjungi <em>workshop</em> kami
+            </h2>
+            <p className="section-desc">
+              Ambil pesanan langsung atau konsultasi tatap muka di workshop kami di Kabupaten Bandung.
+            </p>
+          </FadeIn>
+          <FadeIn delay={100}>
+            <div className="map-inner">
+              {/* Google Maps Embed */}
+              <div className="map-frame-wrap">
+                <iframe
+                  src="https://maps.google.com/maps?q=-7.0454444,107.5318776&z=16&output=embed"
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Lokasi Konveksi Pejabat"
+                />
+              </div>
+
+              {/* Info Card */}
+              <div className="map-info-card">
+                <div>
+                  <p className="map-info-label">Workshop</p>
+                  <h3 className="map-info-name">Konveksi <em>Pejabat</em></h3>
+                  <p className="map-info-addr">
+                    Kp. Jl. Cikancung No.03/07, Pananjung<br />
+                    Kec. Cangkuang, Kab. Bandung<br />
+                    Jawa Barat 40238
+                  </p>
+                </div>
+
+                <div className="map-hours">
+                  <p className="map-info-label" style={{ marginBottom: 0 }}>Jam Operasional</p>
+                  {[
+                    { day: "Senin – Jumat", time: "08.00 – 17.00" },
+                    { day: "Sabtu", time: "08.00 – 14.00" },
+                    { day: "Minggu", time: "Tutup", closed: true },
+                  ].map(({ day, time, closed }) => (
+                    <div key={day} className="map-hour-row">
+                      <span className="map-hour-day">{day}</span>
+                      <span className={`map-hour-time${closed ? " closed" : ""}`}>{time}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="map-btn-wrap">
+                  <a
+                    href="https://maps.google.com/?q=-7.0454444,107.5318776"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-maps-primary"
+                  >
+                    <ExternalLink size={14} />
+                    Buka di Google Maps
+                  </a>
+                  <div className="map-tip">
+                    <MapPin size={14} />
+                    <p className="map-tip-text">
+                      Bawa bukti pesanan (nomor order atau screenshot konfirmasi) saat mengambil produk.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </FadeIn>
         </section>
 

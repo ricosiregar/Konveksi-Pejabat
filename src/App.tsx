@@ -20,7 +20,7 @@ import UserOrders from "./pages/user_page/pesanan_user";
 import AdminDashboard from "./pages/admin_pages/dashboard_admin";
 import AdminOrders from "./pages/admin_pages/pesanan_admin";
 import AdminProducts from "./pages/admin_pages/products_admin";
-import AdminCustomers from "./pages/admin_pages/customers_admin";
+// import AdminCustomers from "./pages/admin_pages/customers_admin";
 import AdminSettings from "./pages/admin_pages/settings_admin";
 
 // AUTH & 404
@@ -68,7 +68,7 @@ const App = () => (
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/orders" element={<AdminOrders />} />
               <Route path="/admin/products" element={<AdminProducts />} />
-              <Route path="/admin/customers" element={<AdminCustomers />} />
+              {/* <Route path="/admin/customers" element={<AdminCustomers />} /> */}
               <Route path="/admin/settings" element={<AdminSettings />} />
             </Route>
 

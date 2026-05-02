@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Package, Clock, CheckCircle, Loader2, ArrowRight } from "lucide-react";
+import { Package, Clock, CheckCircle, Loader2, ArrowRight, MapPin, PackageCheck } from "lucide-react"; // <-- Tambah PackageCheck
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/widgets/card";
 import { Badge } from "@/components/widgets/badge";
 import { Separator } from "@/components/widgets/separator";
@@ -23,7 +23,8 @@ type Order = {
   customer_phone: string;
   notes: string;
   total_price: number;
-  status: "pending" | "confirmed" | "processing" | "completed";
+  // Tambahkan "picked_up" di tipe status
+  status: "pending" | "confirmed" | "processing" | "completed" | "picked_up";
   items: OrderItem[];
   created_at: string;
 };
@@ -45,9 +46,15 @@ const statusConfig = {
     color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
   },
   completed: {
-    label: "Selesai",
+    label: "Siap Diambil",
     icon: CheckCircle,
     color: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+  },
+  // Tambahkan konfigurasi visual untuk status baru
+  picked_up: {
+    label: "Pesanan Selesai & Diambil",
+    icon: PackageCheck,
+    color: "bg-zinc-500/10 text-zinc-600 border-zinc-500/20",
   },
 };
 
@@ -72,35 +79,62 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  const fetchOrders = async () => {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    const fetchOrders = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (!user) {
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("orders")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (!error && data) {
+          setOrders(data);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
         setLoading(false);
-        return;
       }
+    };
 
-      const { data, error } = await supabase
+    fetchOrders();
+  }, []);
+
+  // --- FUNGSI UPDATE STATUS KE SUPABASE ---
+  const handleConfirmPickup = async (orderId: string) => {
+    // Validasi sederhana agar user tidak salah klik
+    if (!window.confirm("Apakah Anda yakin sudah mengambil pesanan ini secara langsung di workshop?")) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
         .from("orders")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+        .update({ status: "picked_up" })
+        .eq("id", orderId);
 
-      if (!error && data) {
-        setOrders(data);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      if (error) throw error;
+
+      // Update state React agar UI langsung berubah tanpa perlu refresh page
+      setOrders((prevOrders) =>
+        prevOrders.map((order) =>
+          order.id === orderId ? { ...order, status: "picked_up" } : order
+        )
+      );
+    } catch (error) {
+      console.error("Gagal mengupdate pesanan:", error);
+      alert("Terjadi kesalahan saat mengupdate status pesanan.");
     }
   };
-
-  fetchOrders();
-}, []);
 
   if (loading) {
     return (
@@ -225,6 +259,47 @@ export default function Orders() {
                     {formatPrice(order.total_price)}
                   </span>
                 </div>
+
+                {/* Blok UI Maps dan Tombol Konfirmasi (Hanya muncul jika status "completed") */}
+                {order.status === "completed" && (
+                  <>
+                    <Separator />
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-muted/40 p-4 rounded-lg border border-emerald-500/20">
+                      <div className="flex items-start gap-3">
+                        <div className="bg-emerald-500/10 p-2 rounded-full shrink-0">
+                          <MapPin className="h-5 w-5 text-emerald-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm text-foreground">Pesanan Siap Diambil!</p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            Kunjungi workshop Konveksi Pejabat dengan membawa nomor ID pesanan ini.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row w-full sm:w-auto shrink-0 gap-2">
+                        <Button asChild size="sm" variant="outline" className="w-full sm:w-auto">
+                          <a
+                            href="https://www.google.com/maps/place/7%C2%B002'43.6%22S+107%C2%B031'54.8%22E/@-7.0454444,107.5293027,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-7.0454444!4d107.5318776?entry=ttu&g_ep=EgoyMDI2MDQyNi4wIKXMDSoASAFQAw%3D%3D" 
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <MapPin className="mr-2 h-4 w-4" />
+                            Buka Maps
+                          </a>
+                        </Button>
+                        <Button 
+                          onClick={() => handleConfirmPickup(order.id)} 
+                          size="sm" 
+                          className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                          <PackageCheck className="mr-2 h-4 w-4" />
+                          Sudah Diambil
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
               </CardContent>
             </Card>
           );

@@ -20,7 +20,7 @@ const navItems = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/admin/orders", label: "Pesanan", icon: ShoppingBag },
   { to: "/admin/products", label: "Produk", icon: Package },
-  { to: "/admin/customers", label: "Pelanggan", icon: Users },
+  // { to: "/admin/customers", label: "Pelanggan", icon: Users },
   { to: "/admin/settings", label: "Pengaturan", icon: Settings },
 ];
 

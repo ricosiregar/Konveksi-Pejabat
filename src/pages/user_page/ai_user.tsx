@@ -134,7 +134,6 @@ const callWebhook = async (prompt: string, model: "huggingface" | "pollinations"
   return JSON.parse(text);
 };
 
-// Convert DB message ke UI message
 const dbMessageToUIMessage = (msg: DBChatMessage): Message => ({
   id: msg.id,
   role: msg.role,
@@ -144,7 +143,6 @@ const dbMessageToUIMessage = (msg: DBChatMessage): Message => ({
   timestamp: new Date(msg.created_at),
 });
 
-// Convert DB comparison message ke ComparisonResult
 const dbMessageToComparison = (msg: DBChatMessage): ComparisonResult => ({
   id: msg.id,
   prompt: msg.prompt || "",
@@ -157,20 +155,22 @@ const dbMessageToComparison = (msg: DBChatMessage): ComparisonResult => ({
   timestamp: new Date(msg.created_at),
 });
 
+const INITIAL_MESSAGES: Message[] = [
+  {
+    id: "welcome",
+    role: "assistant",
+    content: "Halo! Saya adalah Jabat AI 🎨\n\nGunakan mode **Perbandingan** untuk membandingkan hasil dua model sekaligus, atau pilih satu model di mode **Single**.\n\nKetik /generate diikuti deskripsi desain Anda!",
+    timestamp: new Date(),
+  },
+];
+
 export default function Chat() {
   const location = useLocation();
   const locationState = location.state as { sessionId?: string; newSession?: number } | null;
 
   const [mode, setMode] = useState<Mode>("compare");
   const [selectedModel, setSelectedModel] = useState<SingleModel>("huggingface");
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      role: "assistant",
-      content: "Halo! Saya adalah Jabat AI 🎨\n\nGunakan mode **Perbandingan** untuk membandingkan hasil dua model sekaligus, atau pilih satu model di mode **Single**.\n\nKetik /generate diikuti deskripsi desain Anda!",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [comparisons, setComparisons] = useState<ComparisonResult[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -179,7 +179,8 @@ export default function Chat() {
 
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const isFirstUserMessage = useRef(true);
+  // ✅ Session dibuat lazy — hanya saat user kirim pesan pertama
+  const sessionCreatedRef = useRef(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -191,42 +192,45 @@ export default function Chat() {
     });
   }, []);
 
-  // Handle navigation state — load session atau buat baru
+  // Handle navigation state
   useEffect(() => {
     if (!userId) return;
 
     if (locationState?.sessionId) {
-      // Load session dari riwayat
+      // Load dari riwayat
       loadSession(locationState.sessionId);
-    } else if (locationState?.newSession || !currentSessionId) {
-      // Buat sesi baru
-      startNewSession(userId, mode);
+    } else if (locationState?.newSession) {
+      // Reset ke chat baru tanpa buat sesi dulu
+      resetToNewChat();
     }
   }, [userId, locationState?.sessionId, locationState?.newSession]);
 
-  const startNewSession = async (uid: string, currentMode: string) => {
-    const session = await createSession(uid, "Chat baru", currentMode);
-    if (session) {
-      setCurrentSessionId(session.id);
-      isFirstUserMessage.current = true;
-      // Reset state
-      setMessages([
-        {
-          id: "1",
-          role: "assistant",
-          content: "Halo! Saya adalah Jabat AI 🎨\n\nGunakan mode **Perbandingan** untuk membandingkan hasil dua model sekaligus, atau pilih satu model di mode **Single**.\n\nKetik /generate diikuti deskripsi desain Anda!",
-          timestamp: new Date(),
-        },
-      ]);
-      setComparisons([]);
-    }
+  const resetToNewChat = () => {
+    setCurrentSessionId(null);
+    sessionCreatedRef.current = false;
+    setMessages(INITIAL_MESSAGES);
+    setComparisons([]);
+    setInput("");
   };
 
-  // Load sesi dari riwayat
+  // ✅ Buat sesi hanya saat diperlukan (pesan pertama dikirim)
+  const ensureSession = async (): Promise<string | null> => {
+    if (currentSessionId) return currentSessionId;
+    if (!userId) return null;
+
+    const session = await createSession(userId, "Chat baru", mode);
+    if (session) {
+      setCurrentSessionId(session.id);
+      sessionCreatedRef.current = true;
+      return session.id;
+    }
+    return null;
+  };
+
   const loadSession = async (sessionId: string) => {
     setIsLoadingHistory(true);
     setCurrentSessionId(sessionId);
-    isFirstUserMessage.current = false;
+    sessionCreatedRef.current = true;
 
     const dbMessages = await getMessages(sessionId);
 
@@ -236,7 +240,6 @@ export default function Chat() {
     for (const msg of dbMessages) {
       if (msg.is_comparison) {
         uiComparisons.push(dbMessageToComparison(msg));
-        // Tambahkan pesan teks companion-nya
         uiMessages.push({
           id: msg.id + "-text",
           role: "assistant",
@@ -249,18 +252,7 @@ export default function Chat() {
       }
     }
 
-    setMessages(
-      uiMessages.length > 0
-        ? uiMessages
-        : [
-            {
-              id: "1",
-              role: "assistant",
-              content: "Halo! Saya adalah Jabat AI 🎨\n\nGunakan mode **Perbandingan** untuk membandingkan hasil dua model sekaligus, atau pilih satu model di mode **Single**.\n\nKetik /generate diikuti deskripsi desain Anda!",
-              timestamp: new Date(),
-            },
-          ]
-    );
+    setMessages(uiMessages.length > 0 ? uiMessages : INITIAL_MESSAGES);
     setComparisons(uiComparisons);
     setIsLoadingHistory(false);
   };
@@ -300,19 +292,24 @@ export default function Chat() {
     const isGenerate = isGenerateCommand(input);
     const cleanPrompt = input.replace(/\/generate/i, "").trim();
 
-    // Supabase: simpan pesan user
-    if (userId && currentSessionId) {
+    // ✅ Buat sesi lazy — hanya saat pesan pertama dikirim
+    const sessionId = await ensureSession();
+
+    // Simpan pesan user
+    if (userId && sessionId) {
       await saveMessage({
-        sessionId: currentSessionId,
+        sessionId,
         userId,
         role: "user",
         content: input,
         imageUrl: previewImage ?? undefined,
       });
-      if (isFirstUserMessage.current) {
+
+      // Update judul dari pesan pertama
+      const isFirstMessage = messages.length === 1 && messages[0].id === "welcome";
+      if (isFirstMessage) {
         const title = cleanPrompt || input;
-        await updateSessionTitle(currentSessionId, title);
-        isFirstUserMessage.current = false;
+        await updateSessionTitle(sessionId, title);
       }
     }
 
@@ -334,22 +331,20 @@ export default function Chat() {
           const fixedPollUrl = data.imageUrl ? fixImageUrl(data.imageUrl) : undefined;
 
           setComparisons((prev) =>
-            prev.map((c) =>
-              c.id !== compId ? c : {
-                ...c,
-                huggingface: data.imageBase64
-                  ? { loading: false, imageBase64: data.imageBase64, mimeType: data.mimeType || "image/jpeg" }
-                  : { loading: false, error: "Gagal generate" },
-                pollinations: fixedPollUrl
-                  ? { loading: false, imageUrl: fixedPollUrl }
-                  : { loading: false, error: "Gagal generate" },
-              }
-            )
+            prev.map((c) => c.id !== compId ? c : {
+              ...c,
+              huggingface: data.imageBase64
+                ? { loading: false, imageBase64: data.imageBase64, mimeType: data.mimeType || "image/jpeg" }
+                : { loading: false, error: "Gagal generate" },
+              pollinations: fixedPollUrl
+                ? { loading: false, imageUrl: fixedPollUrl }
+                : { loading: false, error: "Gagal generate" },
+            })
           );
 
-          if (userId && currentSessionId) {
+          if (userId && sessionId) {
             await saveComparison({
-              sessionId: currentSessionId,
+              sessionId,
               userId,
               prompt: cleanPrompt,
               hfImageBase64: data.imageBase64,
@@ -359,13 +354,11 @@ export default function Chat() {
           }
         } catch {
           setComparisons((prev) =>
-            prev.map((c) =>
-              c.id !== compId ? c : {
-                ...c,
-                huggingface: { loading: false, error: "Gagal generate" },
-                pollinations: { loading: false, error: "Gagal generate" },
-              }
-            )
+            prev.map((c) => c.id !== compId ? c : {
+              ...c,
+              huggingface: { loading: false, error: "Gagal generate" },
+              pollinations: { loading: false, error: "Gagal generate" },
+            })
           );
         }
       } else if (isGenerate && mode === "single") {
@@ -384,8 +377,8 @@ export default function Chat() {
           { id: Date.now().toString(), role: "assistant", content: singleContent, imageUrl: finalImageUrl, model: selectedModel, timestamp: new Date() },
         ]);
 
-        if (userId && currentSessionId) {
-          await saveMessage({ sessionId: currentSessionId, userId, role: "assistant", content: singleContent, imageUrl: finalImageUrl, model: selectedModel });
+        if (userId && sessionId) {
+          await saveMessage({ sessionId, userId, role: "assistant", content: singleContent, imageUrl: finalImageUrl, model: selectedModel });
         }
       } else {
         const response = await fetch(WEBHOOK_URL, {
@@ -405,8 +398,8 @@ export default function Chat() {
           { id: Date.now().toString(), role: "assistant", content: chatContent, timestamp: new Date() },
         ]);
 
-        if (userId && currentSessionId) {
-          await saveMessage({ sessionId: currentSessionId, userId, role: "assistant", content: chatContent });
+        if (userId && sessionId) {
+          await saveMessage({ sessionId, userId, role: "assistant", content: chatContent });
         }
       }
     } catch (error) {
@@ -451,12 +444,7 @@ export default function Chat() {
             ) : comp.huggingface?.error ? (
               <p className="text-xs text-destructive px-3 text-center">{comp.huggingface.error}</p>
             ) : comp.huggingface?.imageBase64 ? (
-              <img
-                src={`data:${comp.huggingface.mimeType};base64,${comp.huggingface.imageBase64}`}
-                alt="HuggingFace result"
-                className="w-full h-full object-cover"
-                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
-              />
+              <img src={`data:${comp.huggingface.mimeType};base64,${comp.huggingface.imageBase64}`} alt="HuggingFace result" className="w-full h-full object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
             ) : null}
           </div>
         </div>
@@ -505,21 +493,17 @@ export default function Chat() {
 
         <div className="ml-auto flex items-center gap-2">
           <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
-            <button
-              onClick={() => setMode("compare")}
+            <button onClick={() => setMode("compare")}
               className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
                 mode === "compare" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
+              )}>
               <GitCompare className="h-3.5 w-3.5" />
               Perbandingan
             </button>
-            <button
-              onClick={() => setMode("single")}
+            <button onClick={() => setMode("single")}
               className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
                 mode === "single" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
+              )}>
               <Zap className="h-3.5 w-3.5" />
               Single
             </button>
@@ -527,21 +511,17 @@ export default function Chat() {
 
           {mode === "single" && (
             <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
-              <button
-                onClick={() => setSelectedModel("huggingface")}
+              <button onClick={() => setSelectedModel("huggingface")}
                 className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
                   selectedModel === "huggingface" ? "bg-orange-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
+                )}>
                 <span className="h-2 w-2 rounded-full bg-orange-400" />
                 Stable Diffusion
               </button>
-              <button
-                onClick={() => setSelectedModel("pollinations")}
+              <button onClick={() => setSelectedModel("pollinations")}
                 className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
                   selectedModel === "pollinations" ? "bg-violet-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
+                )}>
                 <span className="h-2 w-2 rounded-full bg-violet-400" />
                 Flux
               </button>
@@ -555,7 +535,7 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Loading history indicator */}
+      {/* Loading history */}
       {isLoadingHistory && (
         <div className="flex items-center justify-center gap-2 py-3 bg-muted/30 border-b border-border">
           <div className="flex gap-1">
@@ -621,15 +601,14 @@ export default function Chat() {
       </div>
 
       {/* Example prompts */}
-      {messages.length === 1 && !isLoadingHistory && (
+      {messages.length === 1 && messages[0].id === "welcome" && !isLoadingHistory && (
         <div className="border-t border-border bg-muted/30 px-4 py-3">
           <div className="mx-auto max-w-3xl">
             <p className="mb-2 text-xs font-medium text-muted-foreground">💡 Coba contoh prompt:</p>
             <div className="flex flex-wrap gap-2">
               {examplePrompts.map((prompt, i) => (
                 <button key={i} onClick={() => setInput(`/generate ${prompt}`)}
-                  className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted hover:border-primary/40"
-                >
+                  className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted hover:border-primary/40">
                   {prompt}
                 </button>
               ))}
@@ -656,8 +635,7 @@ export default function Chat() {
       <div className="border-t border-border bg-card px-4 py-4">
         <div className="mx-auto flex max-w-3xl gap-2">
           <button onClick={() => fileInputRef.current?.click()}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
             <Paperclip className="h-4 w-4" />
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
@@ -679,4 +657,4 @@ export default function Chat() {
       </div>
     </div>
   );
-} 
+}
