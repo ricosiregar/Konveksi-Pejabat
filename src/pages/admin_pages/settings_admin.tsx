@@ -71,43 +71,6 @@ export default function AdminSettings() {
         </div>
       </div>
 
-      {/* Store Info */}
-      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-6 space-y-5">
-        <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
-          <div className="rounded-xl bg-blue-100 p-2">
-            <Store className="h-5 w-5 text-blue-500" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-gray-900">Informasi Toko</h2>
-            <p className="text-sm text-gray-400">Detail konveksi Anda</p>
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          {[
-            { label: "Nama Toko", value: "Konveksi Pejabat", placeholder: "Nama toko" },
-            { label: "Telepon", value: "+62 812 3456 7890", placeholder: "No. telepon" },
-            { label: "Email Toko", value: "admin@konveksipejabat.com", placeholder: "Email" },
-            { label: "Alamat", value: "Jakarta, Indonesia", placeholder: "Alamat" },
-          ].map((field) => (
-            <div key={field.label} className="space-y-1.5">
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                {field.label}
-              </label>
-              <input
-                defaultValue={field.value}
-                placeholder={field.placeholder}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-            </div>
-          ))}
-        </div>
-
-        <button className="rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors">
-          Simpan Perubahan
-        </button>
-      </div>
-
       {/* Logout */}
       <div className="rounded-2xl border border-red-100 bg-red-50 p-5 flex items-center justify-between">
         <div>

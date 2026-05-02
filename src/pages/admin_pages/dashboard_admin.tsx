@@ -313,11 +313,7 @@ export default function AdminDashboard() {
                             <CheckCircle className="h-2.5 w-2.5" /> Lunas
                           </span>
                         )}
-                        {order.payment_status === "unpaid" && (
-                          <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-600 border border-red-200">
-                            <Clock className="h-2.5 w-2.5" /> Belum Bayar
-                          </span>
-                        )}
+                  
                       </td>
                       <td className="px-5 py-4">
                         <Link
