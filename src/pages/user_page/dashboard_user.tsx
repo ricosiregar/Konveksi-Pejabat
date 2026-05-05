@@ -145,7 +145,7 @@ export default function LandingPage() {
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        body, #landing {
+        #landing {
           font-family: 'DM Sans', sans-serif;
           background: var(--paper);
           color: var(--ink);
@@ -153,18 +153,9 @@ export default function LandingPage() {
 
         .serif { font-family: 'DM Serif Display', serif; }
 
-        /* NAV */
+        /* NAV (Hidden in Dashboard) */
         .nav {
-          position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-          padding: 0 5%;
-          display: flex; align-items: center; justify-content: space-between;
-          height: 64px;
-          transition: background 0.3s, box-shadow 0.3s;
-        }
-        .nav.scrolled {
-          background: rgba(245,244,240,0.92);
-          backdrop-filter: blur(12px);
-          box-shadow: 0 1px 0 rgba(0,0,0,0.08);
+          display: none;
         }
         .nav-logo {
           font-family: 'DM Serif Display', serif;
@@ -191,7 +182,7 @@ export default function LandingPage() {
 
         /* HERO */
         .hero {
-          min-height: 100vh;
+          min-height: calc(100vh - 4rem);
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -664,15 +655,7 @@ export default function LandingPage() {
       `}</style>
 
       <div id="landing">
-        {/* NAV */}
-        <nav className={`nav ${scrolled ? "scrolled" : ""}`}>
-          <a href="#" className="nav-logo">
-            Konveksi<span></span>Pejabat
-          </a>
-          <Link to="/catalog" className="nav-cta">
-            Pesan Sekarang
-          </Link>
-        </nav>
+        {/* NAV - Hidden */}
 
         {/* HERO */}
         <section className="hero">

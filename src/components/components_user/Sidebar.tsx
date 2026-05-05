@@ -13,6 +13,7 @@ import {
   Clock,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useCart } from "@/context/CartContext";
@@ -33,7 +34,13 @@ const navItems = [
   { icon: Settings, label: "Pengaturan", path: "/settings" },
 ];
 
-export function DashboardSidebar() {
+export function DashboardSidebar({ 
+  mobileOpen, 
+  setMobileOpen 
+}: { 
+  mobileOpen?: boolean; 
+  setMobileOpen?: (open: boolean) => void 
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const { getCartCount } = useCart();
   const cartCount = getCartCount();
@@ -107,7 +114,8 @@ export function DashboardSidebar() {
   return (
     <aside
       className={cn(
-        "relative flex flex-col bg-sidebar text-sidebar-foreground transition-all duration-300",
+        "fixed inset-y-0 left-0 z-50 flex flex-col bg-sidebar text-sidebar-foreground transition-transform duration-300 md:relative md:translate-x-0",
+        mobileOpen ? "translate-x-0" : "-translate-x-full",
         collapsed ? "w-16" : "w-64"
       )}
     >
@@ -119,6 +127,12 @@ export function DashboardSidebar() {
         {!collapsed && (
           <span className="text-lg font-bold tracking-tight"></span>
         )}
+        <button 
+          className="ml-auto md:hidden text-sidebar-foreground/60 hover:text-sidebar-foreground"
+          onClick={() => setMobileOpen?.(false)}
+        >
+          <X className="h-5 w-5" />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -128,6 +142,7 @@ export function DashboardSidebar() {
             key={item.path}
             to={item.path}
             end={item.path === "/"}
+            onClick={() => setMobileOpen?.(false)}
             className={({ isActive }) =>
               cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all relative",
@@ -217,7 +232,7 @@ export function DashboardSidebar() {
       {/* Collapse button */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-20 flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-foreground shadow-md transition-colors hover:bg-sidebar-accent"
+        className="absolute -right-3 top-20 hidden md:flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-foreground shadow-md transition-colors hover:bg-sidebar-accent"
       >
         {collapsed ? (
           <ChevronRight className="h-3.5 w-3.5" />
