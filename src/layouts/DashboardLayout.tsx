@@ -60,7 +60,7 @@ export function DashboardLayout() {
               className="font-bold text-base tracking-tight text-gray-900"
               style={{ fontFamily: "'Sora', sans-serif" }}
             >
-              Konveksi<span className="text-orange-500">.</span>
+              Konveksi Pejabat<span className="text-orange-500">.</span>
             </span>
           </div>
 
