@@ -38,7 +38,6 @@ export default function Cart() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [removedProducts, setRemovedProducts] = useState<string[]>([]);
 
-  // Design image state
   const [designSource, setDesignSource] = useState<"upload" | "ai" | null>(null);
   const [designFile, setDesignFile] = useState<File | null>(null);
   const [designPreview, setDesignPreview] = useState<string | null>(null);
@@ -139,6 +138,22 @@ export default function Cart() {
     return null;
   };
 
+  // ✅ FIX: Validasi min_order sebelum checkout
+  const validateMinOrders = (): boolean => {
+    for (const item of cart) {
+      const minOrder = item.product.min_order ?? 1;
+      if (item.quantity < minOrder) {
+        toast({
+          title: "Jumlah tidak memenuhi minimum",
+          description: `${item.product.name} memerlukan minimal ${minOrder} pcs (saat ini: ${item.quantity})`,
+          variant: "destructive",
+        });
+        return false;
+      }
+    }
+    return true;
+  };
+
   const handleSubmitOrder = async () => {
     if (!customerName.trim()) {
       toast({ title: "Nama harus diisi", variant: "destructive" });
@@ -149,22 +164,23 @@ export default function Cart() {
       return;
     }
 
+    // ✅ FIX: Cek min_order sebelum lanjut
+    if (!validateMinOrders()) return;
+
     setIsSubmitting(true);
     setIsUploading(true);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Upload design image
       let designImageUrl: string | null = null;
       if (selectedAiImage || designFile) {
         designImageUrl = await uploadDesignImage(user?.id || "anonymous");
       }
       setIsUploading(false);
 
-      // Buat order dulu dengan status pending + payment_status unpaid
-const orderId = crypto.randomUUID();      
-const { error: orderError } = await supabase.from("orders").insert({
+      const orderId = crypto.randomUUID();
+      const { error: orderError } = await supabase.from("orders").insert({
         id: orderId,
         customer_name: customerName,
         customer_phone: customerPhone,
@@ -186,10 +202,9 @@ const { error: orderError } = await supabase.from("orders").insert({
 
       if (orderError) throw orderError;
 
-      // Panggil Edge Function untuk buat Snap Token
       const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(
-  `https://yxurvjtpghxdupwkzvfb.supabase.co/functions/v1/create-payment`,
+        `https://yxurvjtpghxdupwkzvfb.supabase.co/functions/v1/create-payment`,
         {
           method: "POST",
           headers: {
@@ -217,10 +232,19 @@ const { error: orderError } = await supabase.from("orders").insert({
         throw new Error(paymentData.error || "Gagal membuat pembayaran");
       }
 
-      // Buka Midtrans Snap popup
       window.snap.pay(paymentData.token, {
         onSuccess: async (result) => {
           console.log("Payment success:", result);
+
+          // ✅ Kurangi stok HANYA setelah pembayaran berhasil
+          const stockUpdates = cart.map((item) =>
+            supabase.rpc("decrement_stock", {
+              product_id: item.product.id,
+              amount: item.quantity,
+            })
+          );
+          await Promise.all(stockUpdates);
+
           replaceCart([]);
           toast({ title: "Pembayaran berhasil! 🎉", description: "Pesanan Anda sedang diproses." });
           navigate("/orders");
@@ -289,39 +313,61 @@ const { error: orderError } = await supabase.from("orders").insert({
       <div className="grid gap-8 lg:grid-cols-3">
         {/* LIST ITEM */}
         <div className="lg:col-span-2 space-y-4">
-          {cart.map((item, index) => (
-            <Card key={index}>
-              <CardContent className="p-4 flex gap-4">
-                <img src={item.product.imageUrl} alt={item.product.name} className="h-24 w-24 rounded-lg object-cover shrink-0" />
-                <div className="flex flex-1 flex-col justify-between min-w-0">
-                  <div>
-                    <h3 className="font-semibold truncate">{item.product.name}</h3>
-                    <p className="text-sm text-muted-foreground">{item.selectedColor} • {item.selectedSize}</p>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Button size="icon" variant="outline" className="h-8 w-8"
-                        onClick={() => updateQuantity(item.product.id, item.selectedColor, item.selectedSize, item.quantity - 1)}>
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="w-8 text-center font-medium">{item.quantity}</span>
-                      <Button size="icon" variant="outline" className="h-8 w-8"
-                        onClick={() => updateQuantity(item.product.id, item.selectedColor, item.selectedSize, item.quantity + 1)}>
-                        <Plus className="h-3 w-3" />
-                      </Button>
+          {cart.map((item, index) => {
+            // ✅ FIX: Ambil min_order per item untuk enforce batas bawah tombol minus
+            const minOrder = item.product.min_order ?? 1;
+            const stock = item.product.stock ?? 0;
+            const atMin = item.quantity <= minOrder;
+            const atMax = stock > 0 && item.quantity >= stock;
+
+            return (
+              <Card key={index}>
+                <CardContent className="p-4 flex gap-4">
+                  <img src={item.product.imageUrl} alt={item.product.name} className="h-24 w-24 rounded-lg object-cover shrink-0" />
+                  <div className="flex flex-1 flex-col justify-between min-w-0">
+                    <div>
+                      <h3 className="font-semibold truncate">{item.product.name}</h3>
+                      <p className="text-sm text-muted-foreground">{item.selectedColor} • {item.selectedSize}</p>
+                      {/* ✅ Tampilkan info min order di cart */}
+                      <p className="text-xs text-amber-500 mt-0.5">Min. order: {minOrder} pcs</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-semibold text-primary">{formatPrice(item.product.price * item.quantity)}</span>
-                      <Button variant="ghost" size="icon" className="h-8 w-8"
-                        onClick={() => removeFromCart(item.product.id, item.selectedColor, item.selectedSize)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {/* ✅ FIX: Tombol minus disabled jika sudah di min_order */}
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8"
+                          disabled={atMin}
+                          onClick={() => updateQuantity(item.product.id, item.selectedColor, item.selectedSize, item.quantity - 1)}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        {/* ✅ FIX: Tombol plus disabled jika sudah di max stock */}
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8"
+                          disabled={atMax}
+                          onClick={() => updateQuantity(item.product.id, item.selectedColor, item.selectedSize, item.quantity + 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold text-primary">{formatPrice(item.product.price * item.quantity)}</span>
+                        <Button variant="ghost" size="icon" className="h-8 w-8"
+                          onClick={() => removeFromCart(item.product.id, item.selectedColor, item.selectedSize)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
 
           {/* DESIGN SECTION */}
           <Card>
@@ -330,7 +376,7 @@ const { error: orderError } = await supabase.from("orders").insert({
                 <ImagePlus className="h-5 w-5 text-primary" />
                 Tambahkan Desain (Opsional)
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Upload gambar desain atau pilih dari hasil generate AI</p>
+              <p className="text-sm text-muted-foreground">Upload gambar desain atau pilih dari hasil generate AI, hanya untuk produk yang mendukung desain khusus</p>
             </CardHeader>
             <CardContent className="space-y-4">
               {currentDesignPreview && (
@@ -455,7 +501,6 @@ const { error: orderError } = await supabase.from("orders").insert({
               <span className="text-primary">{formatPrice(getCartTotal())}</span>
             </div>
 
-            {/* Midtrans payment methods hint */}
             <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
               <p className="text-xs font-medium text-blue-800 flex items-center gap-1.5">
                 <CreditCard className="h-3.5 w-3.5" />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Package, TrendingUp, Users, Shirt, Eye, RefreshCw, Loader2, Clock, CheckCircle } from "lucide-react";
+import { Package, TrendingUp, Users, Shirt, Eye, RefreshCw, Loader2, CheckCircle, PackageCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Link } from "react-router-dom";
 
@@ -17,7 +17,7 @@ type Order = {
   customer_name: string;
   customer_phone: string;
   total_price: number;
-  status: "pending" | "confirmed" | "processing" | "completed";
+  status: "pending" | "confirmed" | "processing" | "completed" | "picked_up";
   payment_status?: string;
   items: OrderItem[];
   created_at: string;
@@ -32,11 +32,33 @@ type Stats = {
   orderGrowth: number;
 };
 
+// ✅ FIX: Tambahkan picked_up agar tidak fallback ke pending
 const statusConfig: Record<string, { label: string; badge: string; dot: string }> = {
-  pending: { label: "Menunggu", badge: "bg-yellow-100 text-yellow-700 border-yellow-200", dot: "bg-yellow-400" },
-  confirmed: { label: "Dikonfirmasi", badge: "bg-blue-100 text-blue-700 border-blue-200", dot: "bg-blue-400" },
-  processing: { label: "Diproses", badge: "bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-400" },
-  completed: { label: "Selesai", badge: "bg-green-100 text-green-700 border-green-200", dot: "bg-green-400" },
+  pending: {
+    label: "Menunggu",
+    badge: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    dot: "bg-yellow-400",
+  },
+  confirmed: {
+    label: "Dikonfirmasi",
+    badge: "bg-blue-100 text-blue-700 border-blue-200",
+    dot: "bg-blue-400",
+  },
+  processing: {
+    label: "Diproses",
+    badge: "bg-purple-100 text-purple-700 border-purple-200",
+    dot: "bg-purple-400",
+  },
+  completed: {
+    label: "Siap Diambil",  // ✅ FIX: Sesuaikan label dengan AdminOrders
+    badge: "bg-green-100 text-green-700 border-green-200",
+    dot: "bg-green-400",
+  },
+  picked_up: {              // ✅ FIX: Entry baru yang sebelumnya tidak ada
+    label: "Sudah Diambil",
+    badge: "bg-zinc-100 text-zinc-600 border-zinc-200",
+    dot: "bg-zinc-400",
+  },
 };
 
 const formatPrice = (price: number) =>
@@ -50,12 +72,21 @@ const formatPriceShort = (price: number): string => {
 };
 
 const formatDate = (dateStr: string) =>
-  new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
+  new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(dateStr));
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats>({
-    totalOrders: 0, totalRevenue: 0, newCustomers: 0,
-    totalProduction: 0, revenueGrowth: 0, orderGrowth: 0,
+    totalOrders: 0,
+    totalRevenue: 0,
+    newCustomers: 0,
+    totalProduction: 0,
+    revenueGrowth: 0,
+    orderGrowth: 0,
   });
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,56 +100,56 @@ export default function AdminDashboard() {
       const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).toISOString();
       const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-      // Total orders & revenue bulan ini
       const { data: thisMonthOrders } = await supabase
         .from("orders")
         .select("id, total_price, items, created_at, user_id")
         .gte("created_at", startOfMonth);
 
-      // Orders bulan lalu (untuk perbandingan growth)
       const { data: lastMonthOrders } = await supabase
         .from("orders")
         .select("id, total_price")
         .gte("created_at", startOfLastMonth)
         .lte("created_at", endOfLastMonth);
 
-      // Pelanggan baru minggu ini (distinct user_id)
       const { data: newCustomerOrders } = await supabase
         .from("orders")
         .select("user_id")
         .gte("created_at", startOfWeek)
         .not("user_id", "is", null);
 
-      // Recent orders (5 terbaru)
       const { data: recent } = await supabase
         .from("orders")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(5);
 
-      // Hitung stats
       const totalOrders = thisMonthOrders?.length ?? 0;
       const totalRevenue = thisMonthOrders?.reduce((sum, o) => sum + o.total_price, 0) ?? 0;
 
       const lastMonthTotal = lastMonthOrders?.length ?? 0;
       const lastMonthRevenue = lastMonthOrders?.reduce((sum, o) => sum + o.total_price, 0) ?? 0;
 
-      const orderGrowth = lastMonthTotal > 0
-        ? Math.round(((totalOrders - lastMonthTotal) / lastMonthTotal) * 100)
-        : totalOrders > 0 ? 100 : 0;
+      const orderGrowth =
+        lastMonthTotal > 0
+          ? Math.round(((totalOrders - lastMonthTotal) / lastMonthTotal) * 100)
+          : totalOrders > 0
+          ? 100
+          : 0;
 
-      const revenueGrowth = lastMonthRevenue > 0
-        ? Math.round(((totalRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
-        : totalRevenue > 0 ? 100 : 0;
+      const revenueGrowth =
+        lastMonthRevenue > 0
+          ? Math.round(((totalRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
+          : totalRevenue > 0
+          ? 100
+          : 0;
 
-      // Pelanggan unik minggu ini
       const uniqueCustomers = new Set(newCustomerOrders?.map((o) => o.user_id)).size;
 
-      // Total produksi (sum quantity semua items bulan ini)
-      const totalProduction = thisMonthOrders?.reduce((sum, order) => {
-        const items: OrderItem[] = order.items || [];
-        return sum + items.reduce((s, item) => s + (item.quantity || 0), 0);
-      }, 0) ?? 0;
+      const totalProduction =
+        thisMonthOrders?.reduce((sum, order) => {
+          const items: OrderItem[] = order.items || [];
+          return sum + items.reduce((s, item) => s + (item.quantity || 0), 0);
+        }, 0) ?? 0;
 
       setStats({
         totalOrders,
@@ -137,15 +168,18 @@ export default function AdminDashboard() {
     }
   };
 
-  useEffect(() => { fetchDashboardData(); }, []);
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
-  // Realtime update
   useEffect(() => {
     const channel = supabase
       .channel("orders_dashboard")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        fetchDashboardData();
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => { fetchDashboardData(); }
+      )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
@@ -154,9 +188,10 @@ export default function AdminDashboard() {
     {
       label: "Total Pesanan",
       value: stats.totalOrders.toString(),
-      sub: stats.orderGrowth >= 0
-        ? `▲ +${stats.orderGrowth}% dari bulan lalu`
-        : `▼ ${stats.orderGrowth}% dari bulan lalu`,
+      sub:
+        stats.orderGrowth >= 0
+          ? `▲ +${stats.orderGrowth}% dari bulan lalu`
+          : `▼ ${stats.orderGrowth}% dari bulan lalu`,
       subColor: stats.orderGrowth >= 0 ? "text-green-600" : "text-red-500",
       icon: Package,
       iconBg: "bg-blue-50",
@@ -166,9 +201,10 @@ export default function AdminDashboard() {
     {
       label: "Pendapatan",
       value: formatPriceShort(stats.totalRevenue),
-      sub: stats.revenueGrowth >= 0
-        ? `▲ +${stats.revenueGrowth}% dari bulan lalu`
-        : `▼ ${stats.revenueGrowth}% dari bulan lalu`,
+      sub:
+        stats.revenueGrowth >= 0
+          ? `▲ +${stats.revenueGrowth}% dari bulan lalu`
+          : `▼ ${stats.revenueGrowth}% dari bulan lalu`,
       subColor: stats.revenueGrowth >= 0 ? "text-green-600" : "text-red-500",
       icon: TrendingUp,
       iconBg: "bg-green-50",
@@ -284,6 +320,7 @@ export default function AdminDashboard() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {recentOrders.map((order) => {
+                  // ✅ FIX: Fallback ke statusConfig yang sudah lengkap, tidak akan undefined lagi
                   const cfg = statusConfig[order.status] ?? statusConfig.pending;
                   const totalQty = order.items?.reduce((sum, i) => sum + i.quantity, 0) ?? 0;
                   return (
@@ -298,13 +335,19 @@ export default function AdminDashboard() {
                       <td className="px-5 py-4 text-gray-700">
                         {order.items?.[0]?.product_name ?? "-"}
                         {(order.items?.length ?? 0) > 1 && (
-                          <span className="text-xs text-gray-400"> +{order.items.length - 1} lainnya</span>
+                          <span className="text-xs text-gray-400">
+                            {" "}+{order.items.length - 1} lainnya
+                          </span>
                         )}
                       </td>
                       <td className="px-5 py-4 text-gray-600">{totalQty} pcs</td>
-                      <td className="px-5 py-4 font-semibold text-gray-900">{formatPrice(order.total_price)}</td>
+                      <td className="px-5 py-4 font-semibold text-gray-900">
+                        {formatPrice(order.total_price)}
+                      </td>
                       <td className="px-5 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.badge}`}>
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.badge}`}
+                        >
                           <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
                           {cfg.label}
                         </span>
@@ -313,7 +356,12 @@ export default function AdminDashboard() {
                             <CheckCircle className="h-2.5 w-2.5" /> Lunas
                           </span>
                         )}
-                  
+                        {/* ✅ FIX: Tampilkan ikon khusus untuk picked_up */}
+                        {order.status === "picked_up" && (
+                          <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 text-zinc-600 border border-zinc-200">
+                            <PackageCheck className="h-2.5 w-2.5" /> Diambil
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-4">
                         <Link

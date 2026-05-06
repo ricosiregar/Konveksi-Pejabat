@@ -17,6 +17,8 @@ export interface Product {
   imageUrl: string;
   colors: string[];
   sizes: string[];
+  min_order: number;
+  stock: number;
 }
 
 export interface CartItem {
@@ -72,7 +74,7 @@ interface CartContextType {
     notes?: string
   ) => void;
 
-  replaceCart: (items: CartItem[]) => void; // ✅ pengganti setCart
+  replaceCart: (items: CartItem[]) => void;
 }
 
 /* ================= CONTEXT ================= */
@@ -142,20 +144,43 @@ export function CartProvider({ children }: { children: ReactNode }) {
     size: string,
     quantity: number
   ) => {
-    if (quantity <= 0) {
-      removeFromCart(productId, color, size);
-      return;
-    }
+    setCart((prev) => {
+      const item = prev.find(
+        (i) =>
+          i.product.id === productId &&
+          i.selectedColor === color &&
+          i.selectedSize === size
+      );
 
-    setCart((prev) =>
-      prev.map((item) =>
-        item.product.id === productId &&
-        item.selectedColor === color &&
-        item.selectedSize === size
-          ? { ...item, quantity }
-          : item
-      )
-    );
+      if (!item) return prev;
+
+      // ✅ FIX: Batas bawah adalah min_order, bukan 0
+      // Jika quantity di bawah min_order, set ke min_order (jangan hapus)
+      const minOrder = item.product.min_order ?? 1;
+      const stock = item.product.stock ?? 0;
+
+      if (quantity < minOrder) {
+        // Jangan hapus — clamp ke min_order
+        return prev.map((i) =>
+          i.product.id === productId &&
+          i.selectedColor === color &&
+          i.selectedSize === size
+            ? { ...i, quantity: minOrder }
+            : i
+        );
+      }
+
+      // Batas atas adalah stock
+      const clamped = Math.min(quantity, stock > 0 ? stock : quantity);
+
+      return prev.map((i) =>
+        i.product.id === productId &&
+        i.selectedColor === color &&
+        i.selectedSize === size
+          ? { ...i, quantity: clamped }
+          : i
+      );
+    });
   };
 
   const clearCart = () => setCart([]);
@@ -198,7 +223,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   };
 
   /* ================= VALIDATE CART ================= */
-  /* Hapus produk yang sudah tidak aktif di database */
 
   useEffect(() => {
     const validateCart = async () => {
@@ -208,24 +232,40 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       const { data } = await supabase
         .from("products")
-        .select("id, active")
+        .select("id, active, stock, min_order")
         .in("id", productIds);
 
-      const validIds = new Set(
-        data?.filter((p) => p.active).map((p) => p.id) ?? []
+      const validMap = new Map(
+        data?.filter((p) => p.active).map((p) => [p.id, p]) ?? []
       );
 
-      const filtered = cart.filter((item) =>
-        validIds.has(item.product.id)
-      );
+      // Hapus produk nonaktif & update stock/min_order terbaru
+      // ✅ FIX: Juga clamp quantity ke min_order terbaru dari DB
+      const filtered = cart
+        .filter((item) => validMap.has(item.product.id))
+        .map((item) => {
+          const latest = validMap.get(item.product.id);
+          const newMinOrder = latest?.min_order ?? item.product.min_order;
+          const newStock = latest?.stock ?? item.product.stock;
 
-      if (filtered.length !== cart.length) {
+          return {
+            ...item,
+            quantity: Math.max(item.quantity, newMinOrder), // pastikan quantity >= min_order terbaru
+            product: {
+              ...item.product,
+              stock: newStock,
+              min_order: newMinOrder,
+            },
+          };
+        });
+
+      if (JSON.stringify(filtered) !== JSON.stringify(cart)) {
         setCart(filtered);
       }
     };
 
     validateCart();
-  }, [cart]);
+  }, []); // hanya saat mount
 
   /* ================= PROVIDER ================= */
 

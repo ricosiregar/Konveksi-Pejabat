@@ -9,6 +9,7 @@ import {
   RefreshCw,
   ImageIcon,
   PackageCheck,
+  Lock,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -107,11 +108,16 @@ export default function AdminOrders() {
   };
 
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
+    // ✅ FIX: Double-check di level fungsi — jangan update jika sudah picked_up
+    const order = orders.find((o) => o.id === orderId);
+    if (order?.status === "picked_up") return;
+
     setUpdatingStatus(true);
     const { error } = await supabase
       .from("orders")
       .update({ status: newStatus })
       .eq("id", orderId);
+
     if (!error) {
       setOrders((prev) =>
         prev.map((o) =>
@@ -216,8 +222,13 @@ export default function AdminOrders() {
                 {filtered.map((order) => {
                   const cfg = statusConfig[order.status] ?? statusConfig.pending;
                   const totalQty = order.items.reduce((sum, i) => sum + i.quantity, 0);
+                  const isFinalized = order.status === "picked_up";
+
                   return (
-                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                    <tr
+                      key={order.id}
+                      className={`transition-colors ${isFinalized ? "bg-zinc-50/60" : "hover:bg-gray-50"}`}
+                    >
                       <td className="px-5 py-4 font-mono font-semibold text-gray-900 text-xs">
                         #{order.id.slice(0, 8).toUpperCase()}
                       </td>
@@ -264,6 +275,12 @@ export default function AdminOrders() {
                           <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
                           {cfg.label}
                         </span>
+                        {/* ✅ Tampilkan ikon kunci jika sudah final */}
+                        {isFinalized && (
+                          <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-zinc-400">
+                            <Lock className="h-3 w-3" />
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-4 text-gray-500 text-xs">
                         {formatDate(order.created_at)}
@@ -435,37 +452,51 @@ export default function AdminOrders() {
                 </p>
               </div>
 
-              {/* Update Status — nonaktifkan tombol picked_up untuk admin */}
+              {/* ✅ FIX: Update Status — seluruh section dikunci jika status picked_up */}
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Update Status
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(statusConfig)
-                    .filter(([key]) => key !== "picked_up") // Admin tidak bisa set picked_up manual
-                    .map(([key, cfg]) => (
-                      <button
-                        key={key}
-                        disabled={updatingStatus}
-                        onClick={() => handleUpdateStatus(selectedOrder.id, key)}
-                        className={`py-2.5 rounded-xl text-xs font-medium border transition-all ${
-                          selectedOrder.status === key
-                            ? "bg-orange-500 text-white border-orange-500"
-                            : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"
-                        } disabled:opacity-60`}
-                      >
-                        {cfg.label}
-                      </button>
-                    ))}
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Update Status
+                  </p>
+                  {/* ✅ Tampilkan label "Terkunci" jika sudah picked_up */}
+                  {selectedOrder.status === "picked_up" && (
+                    <span className="inline-flex items-center gap-1 text-xs text-zinc-500 font-medium">
+                      <Lock className="h-3 w-3" />
+                      Terkunci
+                    </span>
+                  )}
                 </div>
 
-                {/* Info jika sudah picked_up */}
-                {selectedOrder.status === "picked_up" && (
-                  <div className="mt-3 flex items-center gap-2 rounded-xl bg-zinc-50 border border-zinc-200 px-4 py-3">
-                    <PackageCheck className="h-4 w-4 text-zinc-500 shrink-0" />
-                    <p className="text-xs text-zinc-600">
-                      Pesanan ini telah dikonfirmasi diambil oleh pelanggan.
-                    </p>
+                {selectedOrder.status === "picked_up" ? (
+                  // ✅ FIX: Jika picked_up, tampilkan banner info — BUKAN tombol
+                  <div className="flex items-center gap-3 rounded-xl bg-zinc-50 border border-zinc-200 px-4 py-4">
+                    <PackageCheck className="h-5 w-5 text-zinc-400 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-700">Pesanan Selesai</p>
+                      <p className="text-xs text-zinc-500 mt-0.5">
+                        Pesanan ini telah dikonfirmasi diambil oleh pelanggan dan tidak dapat diubah lagi.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  // ✅ Tampilkan tombol hanya jika belum picked_up
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(statusConfig)
+                      .filter(([key]) => key !== "picked_up") // Admin tidak set picked_up manual
+                      .map(([key, cfg]) => (
+                        <button
+                          key={key}
+                          disabled={updatingStatus}
+                          onClick={() => handleUpdateStatus(selectedOrder.id, key)}
+                          className={`py-2.5 rounded-xl text-xs font-medium border transition-all ${
+                            selectedOrder.status === key
+                              ? "bg-orange-500 text-white border-orange-500"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-orange-300"
+                          } disabled:opacity-60`}
+                        >
+                          {cfg.label}
+                        </button>
+                      ))}
                   </div>
                 )}
               </div>

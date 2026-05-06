@@ -31,17 +31,15 @@ export default function AdminProducts() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
 
-  // Color state
   const [colors, setColors] = useState<string[]>([]);
   const [colorInput, setColorInput] = useState("");
 
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-    price: "",
-    min_order: "",
-    stock: "",
-  });
+  // ✅ FIX: Pisahkan state numerik agar tidak di-coerce ke 0 saat kosong
+  const [formName, setFormName] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formPrice, setFormPrice] = useState("");
+  const [formMinOrder, setFormMinOrder] = useState("");
+  const [formStock, setFormStock] = useState("");
 
   useEffect(() => {
     fetchProducts();
@@ -59,25 +57,32 @@ export default function AdminProducts() {
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const openAdd = () => {
-    setEditProduct(null);
-    setForm({ name: "", description: "", price: "", min_order: "", stock: "" });
+  const resetForm = () => {
+    setFormName("");
+    setFormDescription("");
+    setFormPrice("");
+    setFormMinOrder("");
+    setFormStock("");
     setColors([]);
     setColorInput("");
     setImageFile(null);
     setImagePreview("");
+  };
+
+  const openAdd = () => {
+    setEditProduct(null);
+    resetForm();
     setShowModal(true);
   };
 
   const openEdit = (product: Product) => {
     setEditProduct(product);
-    setForm({
-      name: product.name,
-      description: product.description,
-      price: String(product.price),
-      min_order: String(product.min_order),
-      stock: String(product.stock),
-    });
+    setFormName(product.name);
+    setFormDescription(product.description ?? "");
+    setFormPrice(String(product.price));
+    // ✅ FIX: Pastikan min_order selalu terisi dengan benar dari data produk
+    setFormMinOrder(String(product.min_order ?? 1));
+    setFormStock(String(product.stock ?? 0));
     setColors(product.colors ?? []);
     setColorInput("");
     setImagePreview(product.image_url || "");
@@ -112,7 +117,7 @@ export default function AdminProducts() {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.price) return;
+    if (!formName.trim() || !formPrice) return;
     setUploading(true);
     try {
       let image_url = editProduct?.image_url || "";
@@ -120,12 +125,13 @@ export default function AdminProducts() {
         image_url = await uploadImage(imageFile);
       }
 
+      // ✅ FIX: Gunakan parseInt agar nilai benar-benar integer, fallback ke 1 / 0
       const payload = {
-        name: form.name,
-        description: form.description,
-        price: Number(form.price),
-        min_order: Number(form.min_order),
-        stock: Number(form.stock),
+        name: formName.trim(),
+        description: formDescription.trim(),
+        price: parseInt(formPrice, 10) || 0,
+        min_order: parseInt(formMinOrder, 10) || 1,
+        stock: parseInt(formStock, 10) || 0,
         image_url,
         colors,
       };
@@ -237,7 +243,6 @@ export default function AdminProducts() {
                 </button>
               </div>
 
-              {/* Warna */}
               {product.colors && product.colors.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {product.colors.map((color) => (
@@ -341,29 +346,80 @@ export default function AdminProducts() {
                 </label>
               </div>
 
-              {/* Field teks */}
-              {[
-                { label: "Nama Produk *", key: "name", placeholder: "Nama produk" },
-                { label: "Deskripsi", key: "description", placeholder: "Deskripsi singkat" },
-                { label: "Harga (Rp) *", key: "price", placeholder: "50000", type: "number" },
-                { label: "Min. Order (pcs)", key: "min_order", placeholder: "12", type: "number" },
-                { label: "Stok", key: "stock", placeholder: "100", type: "number" },
-              ].map((field) => (
-                <div key={field.key} className="space-y-1.5">
-                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    {field.label}
-                  </label>
-                  <input
-                    type={field.type || "text"}
-                    placeholder={field.placeholder}
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                    value={form[field.key as keyof typeof form]}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
-                  />
-                </div>
-              ))}
+              {/* ✅ FIX: Setiap field dirender eksplisit — BUKAN lewat .map() */}
+              {/* Ini mencegah React kehilangan focus/state saat re-render */}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Nama Produk *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Nama produk"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Deskripsi
+                </label>
+                <input
+                  type="text"
+                  placeholder="Deskripsi singkat"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Harga (Rp) *
+                </label>
+                <input
+                  type="number"
+                  placeholder="50000"
+                  min="0"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  value={formPrice}
+                  onChange={(e) => setFormPrice(e.target.value)}
+                />
+              </div>
+
+              {/* ✅ FIX: min_order tidak punya min="1" agar admin bebas input berapa saja */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Min. Order (pcs)
+                </label>
+                <input
+                  type="number"
+                  placeholder="12"
+                  min="1"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  value={formMinOrder}
+                  onChange={(e) => setFormMinOrder(e.target.value)}
+                />
+                <p className="text-xs text-gray-400">
+                  Jumlah minimum pembelian yang harus dipenuhi user
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Stok
+                </label>
+                <input
+                  type="number"
+                  placeholder="100"
+                  min="0"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  value={formStock}
+                  onChange={(e) => setFormStock(e.target.value)}
+                />
+              </div>
 
               {/* Input Warna */}
               <div className="space-y-1.5">

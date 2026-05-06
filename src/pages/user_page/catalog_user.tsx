@@ -21,30 +21,31 @@ export default function Catalog() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchProducts = async () => {
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("active", true)
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      const mapped: Product[] = data.map((item) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        imageUrl: item.image_url,
+        colors: item.colors ?? [],
+        sizes: item.sizes ?? [],
+        min_order: item.min_order ?? 1,
+        stock: item.stock ?? 0,
+      }));
+      setProducts(mapped);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetchProducts = async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("active", true)
-        .order("created_at", { ascending: false });
-
-      if (!error && data) {
-        // Map kolom Supabase → tipe Product di CartContext
-        const mapped: Product[] = data.map((item) => ({
-          id: item.id,
-          name: item.name,
-          description: item.description,
-          price: item.price,
-          imageUrl: item.image_url,
-          colors: item.colors ?? [],
-          sizes: item.sizes ?? [],
-        }));
-        setProducts(mapped);
-      }
-      setLoading(false);
-    };
-
     fetchProducts();
   }, []);
 
@@ -59,7 +60,6 @@ export default function Catalog() {
         </p>
       </div>
 
-      {/* Loading State */}
       {loading && (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {[...Array(3)].map((_, i) => (
@@ -75,7 +75,6 @@ export default function Catalog() {
         </div>
       )}
 
-      {/* Empty State */}
       {!loading && products.length === 0 && (
         <div className="flex flex-col items-center py-24 text-gray-400">
           <Package className="h-12 w-12 mb-3" />
@@ -84,7 +83,6 @@ export default function Catalog() {
         </div>
       )}
 
-      {/* Product Grid */}
       {!loading && products.length > 0 && (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {products.map((product, index) => (
@@ -96,20 +94,35 @@ export default function Catalog() {
   );
 }
 
+// ✅ Hapus prop onStockUpdated karena stok tidak lagi dikurangi saat add to cart
 function ProductCard({ product, delay }: { product: Product; delay: number }) {
   const navigate = useNavigate();
+  const minOrder = product.min_order ?? 1;
+  const stock = product.stock ?? 0;
+
   const [selectedColor, setSelectedColor] = useState(product.colors?.[0] ?? "");
   const [selectedSize, setSelectedSize] = useState(product.sizes?.[1] ?? product.sizes?.[0] ?? "");
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(minOrder);
   const [added, setAdded] = useState(false);
 
   const { addToCart } = useCart();
   const { toast } = useToast();
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     const user = localStorage.getItem("user");
     if (!user) {
       navigate("/auth");
+      return;
+    }
+
+    // ✅ Hanya cek stok tersedia, TIDAK kurangi stok di sini
+    // Pengurangan stok dilakukan saat checkout berhasil (onSuccess Midtrans)
+    if (quantity > stock) {
+      toast({
+        title: "Stok tidak cukup",
+        description: `Stok tersedia hanya ${stock} pcs`,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -119,6 +132,7 @@ function ProductCard({ product, delay }: { product: Product; delay: number }) {
       title: "Ditambahkan ke keranjang",
       description: `${quantity}x ${product.name} (${selectedColor}, ${selectedSize})`,
     });
+
     setTimeout(() => setAdded(false), 2000);
   };
 
@@ -154,7 +168,20 @@ function ProductCard({ product, delay }: { product: Product; delay: number }) {
           <p className="text-sm text-muted-foreground mt-1">{product.description}</p>
         </div>
 
-        <div className="text-xl font-bold text-primary">{formatPrice(product.price)}</div>
+        <div className="flex items-center justify-between">
+          <div className="text-xl font-bold text-primary">{formatPrice(product.price)}</div>
+          <div className="text-right">
+            <p className="text-xs text-muted-foreground">
+              Stok:{" "}
+              <span className={cn("font-semibold", stock <= 10 ? "text-red-500" : "text-green-600")}>
+                {stock} pcs
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Min. order: <span className="font-semibold">{minOrder} pcs</span>
+            </p>
+          </div>
+        </div>
 
         {/* Warna */}
         {product.colors && product.colors.length > 0 && (
@@ -205,18 +232,32 @@ function ProductCard({ product, delay }: { product: Product; delay: number }) {
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-foreground">Jumlah</p>
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQuantity((q) => Math.max(1, q - 1))}>
+            <Button
+              variant="outline" size="icon" className="h-8 w-8"
+              disabled={quantity <= minOrder}
+              onClick={() => setQuantity((q) => Math.max(minOrder, q - 1))}
+            >
               <Minus className="h-4 w-4" />
             </Button>
             <span className="w-8 text-center font-medium">{quantity}</span>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQuantity((q) => q + 1)}>
+            <Button
+              variant="outline" size="icon" className="h-8 w-8"
+              disabled={quantity >= stock}
+              onClick={() => setQuantity((q) => Math.min(stock, q + 1))}
+            >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
-        <Button className="w-full gap-2" onClick={handleAddToCart} disabled={added}>
-          {added ? (
+        {quantity === minOrder && (
+          <p className="text-xs text-amber-500">Minimal pemesanan {minOrder} pcs</p>
+        )}
+
+        <Button className="w-full gap-2" onClick={handleAddToCart} disabled={added || stock === 0}>
+          {stock === 0 ? (
+            <>Stok Habis</>
+          ) : added ? (
             <><Check className="h-4 w-4" /> Ditambahkan</>
           ) : (
             <><ShoppingCart className="h-4 w-4" /> Tambah ke Keranjang</>
