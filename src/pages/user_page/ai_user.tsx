@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Paperclip, X, Bot, User, Sparkles, Zap, GitCompare } from "lucide-react";
+import { Send, Paperclip, X, Bot, User, Sparkles } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/widgets/button";
@@ -8,7 +8,6 @@ import { supabase } from "@/lib/supabase";
 import {
   createSession,
   saveMessage,
-  saveComparison,
   updateSessionTitle,
   getMessages,
   type ChatMessage as DBChatMessage,
@@ -19,28 +18,13 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   imageUrl?: string;
-  model?: "huggingface" | "pollinations" | "both";
+  model?: "pollinations";
   timestamp: Date;
 }
-
-interface ComparisonResult {
-  id: string;
-  prompt: string;
-  huggingface?: { imageBase64?: string; mimeType?: string; loading: boolean; error?: string };
-  pollinations?: { imageUrl?: string; loading: boolean; error?: string };
-  timestamp: Date;
-}
-
-type Mode = "single" | "compare";
-type SingleModel = "huggingface" | "pollinations";
 
 const WEBHOOK_URL = "/webhook-test/chat-design";
 
-const examplePrompts = [
-  "Jersey bola merah hitam modern",
-  "Kemeja kantor biru navy elegan",
-  "Kaos pantai warna cerah tropis",
-];
+
 
 const formatMessagesForApi = (messages: Message[]) =>
   messages
@@ -114,18 +98,18 @@ function PollinationsImage({ src, alt, className }: { src: string; alt: string; 
   );
 }
 
-const callWebhook = async (prompt: string, model: "huggingface" | "pollinations" | "both", messages: Message[]) => {
+const callWebhook = async (prompt: string, messages: Message[]) => {
   const lastMessage: Message = {
     id: Date.now().toString(),
     role: "user",
-    content: `/generate ${prompt}`,
+    content: `/buatkan ${prompt}`,
     timestamp: new Date(),
   };
 
   const response = await fetch(WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
-    body: JSON.stringify({ messages: formatMessagesForApi(messages), lastMessage, model }),
+    body: JSON.stringify({ messages: formatMessagesForApi(messages), lastMessage, model: "pollinations" }),
   });
 
   if (!response.ok) throw new Error(`Error: ${response.status}`);
@@ -139,19 +123,7 @@ const dbMessageToUIMessage = (msg: DBChatMessage): Message => ({
   role: msg.role,
   content: msg.content,
   imageUrl: msg.image_url || undefined,
-  model: msg.model as Message["model"] | undefined,
-  timestamp: new Date(msg.created_at),
-});
-
-const dbMessageToComparison = (msg: DBChatMessage): ComparisonResult => ({
-  id: msg.id,
-  prompt: msg.prompt || "",
-  huggingface: msg.hf_image_base64
-    ? { loading: false, imageBase64: msg.hf_image_base64, mimeType: msg.hf_mime_type || "image/jpeg" }
-    : { loading: false, error: "Tidak ada gambar" },
-  pollinations: msg.poll_image_url
-    ? { loading: false, imageUrl: msg.poll_image_url }
-    : { loading: false, error: "Tidak ada gambar" },
+  model: "pollinations",
   timestamp: new Date(msg.created_at),
 });
 
@@ -159,7 +131,7 @@ const INITIAL_MESSAGES: Message[] = [
   {
     id: "welcome",
     role: "assistant",
-    content: "Halo! Saya adalah Jabat AI 🎨\n\nGunakan mode **Perbandingan** untuk membandingkan hasil dua model sekaligus, atau pilih satu model di mode **Single**.\n\nKetik /generate diikuti deskripsi desain Anda!",
+    content: "Halo! Saya adalah Jabat AI 🎨\n\nKetik /buatkan diikuti deskripsi desain Anda, dan saya akan membuatkan gambarnya!\n\nContoh: /buatkan kucing biru",
     timestamp: new Date(),
   },
 ];
@@ -168,10 +140,7 @@ export default function Chat() {
   const location = useLocation();
   const locationState = location.state as { sessionId?: string; newSession?: number } | null;
 
-  const [mode, setMode] = useState<Mode>("compare");
-  const [selectedModel, setSelectedModel] = useState<SingleModel>("huggingface");
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
-  const [comparisons, setComparisons] = useState<ComparisonResult[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -179,28 +148,22 @@ export default function Chat() {
 
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  // ✅ Session dibuat lazy — hanya saat user kirim pesan pertama
   const sessionCreatedRef = useRef(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Ambil user
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setUserId(data.user.id);
     });
   }, []);
 
-  // Handle navigation state
   useEffect(() => {
     if (!userId) return;
-
     if (locationState?.sessionId) {
-      // Load dari riwayat
       loadSession(locationState.sessionId);
     } else if (locationState?.newSession) {
-      // Reset ke chat baru tanpa buat sesi dulu
       resetToNewChat();
     }
   }, [userId, locationState?.sessionId, locationState?.newSession]);
@@ -209,16 +172,13 @@ export default function Chat() {
     setCurrentSessionId(null);
     sessionCreatedRef.current = false;
     setMessages(INITIAL_MESSAGES);
-    setComparisons([]);
     setInput("");
   };
 
-  // ✅ Buat sesi hanya saat diperlukan (pesan pertama dikirim)
   const ensureSession = async (): Promise<string | null> => {
     if (currentSessionId) return currentSessionId;
     if (!userId) return null;
-
-    const session = await createSession(userId, "Chat baru", mode);
+    const session = await createSession(userId, "Chat baru", "single");
     if (session) {
       setCurrentSessionId(session.id);
       sessionCreatedRef.current = true;
@@ -231,35 +191,15 @@ export default function Chat() {
     setIsLoadingHistory(true);
     setCurrentSessionId(sessionId);
     sessionCreatedRef.current = true;
-
     const dbMessages = await getMessages(sessionId);
-
-    const uiMessages: Message[] = [];
-    const uiComparisons: ComparisonResult[] = [];
-
-    for (const msg of dbMessages) {
-      if (msg.is_comparison) {
-        uiComparisons.push(dbMessageToComparison(msg));
-        uiMessages.push({
-          id: msg.id + "-text",
-          role: "assistant",
-          content: `Perbandingan: "${msg.prompt}"`,
-          model: "both",
-          timestamp: new Date(msg.created_at),
-        });
-      } else {
-        uiMessages.push(dbMessageToUIMessage(msg));
-      }
-    }
-
+    const uiMessages = dbMessages.map(dbMessageToUIMessage);
     setMessages(uiMessages.length > 0 ? uiMessages : INITIAL_MESSAGES);
-    setComparisons(uiComparisons);
     setIsLoadingHistory(false);
   };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, comparisons]);
+  }, [messages]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -269,8 +209,8 @@ export default function Chat() {
     reader.readAsDataURL(file);
   };
 
-  const isGenerateCommand = (text: string) =>
-    text.trim().toLowerCase().startsWith("/generate");
+  const isBuatkanCommand = (text: string) =>
+    text.trim().toLowerCase().startsWith("/buatkan");
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -289,13 +229,11 @@ export default function Chat() {
     setPreviewImage(null);
     setIsLoading(true);
 
-    const isGenerate = isGenerateCommand(input);
-    const cleanPrompt = input.replace(/\/generate/i, "").trim();
+    const isGenerate = isBuatkanCommand(input);
+    const cleanPrompt = input.replace(/\/buatkan/i, "").trim();
 
-    // ✅ Buat sesi lazy — hanya saat pesan pertama dikirim
     const sessionId = await ensureSession();
 
-    // Simpan pesan user
     if (userId && sessionId) {
       await saveMessage({
         sessionId,
@@ -305,86 +243,41 @@ export default function Chat() {
         imageUrl: previewImage ?? undefined,
       });
 
-      // Update judul dari pesan pertama
       const isFirstMessage = messages.length === 1 && messages[0].id === "welcome";
       if (isFirstMessage) {
-        const title = cleanPrompt || input;
-        await updateSessionTitle(sessionId, title);
+        await updateSessionTitle(sessionId, cleanPrompt || input);
       }
     }
 
     try {
-      if (isGenerate && mode === "compare") {
-        const compId = Date.now().toString();
-        setComparisons((prev) => [
-          ...prev,
-          { id: compId, prompt: cleanPrompt, huggingface: { loading: true }, pollinations: { loading: true }, timestamp: new Date() },
-        ]);
-
-        setMessages((prev) => [
-          ...prev,
-          { id: Date.now().toString(), role: "assistant", content: `Membandingkan dua model untuk: "${cleanPrompt}"`, model: "both", timestamp: new Date() },
-        ]);
-
-        try {
-          const data = await callWebhook(cleanPrompt, "both", newMessages);
-          const fixedPollUrl = data.imageUrl ? fixImageUrl(data.imageUrl) : undefined;
-
-          setComparisons((prev) =>
-            prev.map((c) => c.id !== compId ? c : {
-              ...c,
-              huggingface: data.imageBase64
-                ? { loading: false, imageBase64: data.imageBase64, mimeType: data.mimeType || "image/jpeg" }
-                : { loading: false, error: "Gagal generate" },
-              pollinations: fixedPollUrl
-                ? { loading: false, imageUrl: fixedPollUrl }
-                : { loading: false, error: "Gagal generate" },
-            })
-          );
-
-          if (userId && sessionId) {
-            await saveComparison({
-              sessionId,
-              userId,
-              prompt: cleanPrompt,
-              hfImageBase64: data.imageBase64,
-              hfMimeType: data.mimeType || "image/jpeg",
-              pollImageUrl: fixedPollUrl,
-            });
-          }
-        } catch {
-          setComparisons((prev) =>
-            prev.map((c) => c.id !== compId ? c : {
-              ...c,
-              huggingface: { loading: false, error: "Gagal generate" },
-              pollinations: { loading: false, error: "Gagal generate" },
-            })
-          );
-        }
-      } else if (isGenerate && mode === "single") {
-        const data = await callWebhook(cleanPrompt, selectedModel, newMessages);
+      if (isGenerate) {
+        const data = await callWebhook(cleanPrompt, newMessages);
 
         let finalImageUrl: string | undefined;
         if (data.imageUrl) finalImageUrl = fixImageUrl(data.imageUrl);
         else if (data.imageBase64) finalImageUrl = `data:${data.mimeType || "image/jpeg"};base64,${data.imageBase64}`;
 
-        const singleContent = finalImageUrl
-          ? `Hasil dari ${selectedModel === "huggingface" ? "Stable Diffusion" : "Pollinations Flux"}:`
-          : "Maaf, gagal membuat gambar.";
+        const content = finalImageUrl ? `Hasil desain untuk: "${cleanPrompt}"` : "Maaf, gagal membuat gambar.";
 
-        setMessages((prev) => [
-          ...prev,
-          { id: Date.now().toString(), role: "assistant", content: singleContent, imageUrl: finalImageUrl, model: selectedModel, timestamp: new Date() },
-        ]);
+        const assistantMessage: Message = {
+          id: Date.now().toString(),
+          role: "assistant",
+          content,
+          imageUrl: finalImageUrl,
+          model: "pollinations",
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, assistantMessage]);
 
         if (userId && sessionId) {
-          await saveMessage({ sessionId, userId, role: "assistant", content: singleContent, imageUrl: finalImageUrl, model: selectedModel });
+          await saveMessage({ sessionId, userId, role: "assistant", content, imageUrl: finalImageUrl, model: "pollinations" });
         }
       } else {
         const response = await fetch(WEBHOOK_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
-          body: JSON.stringify({ messages: formatMessagesForApi(newMessages), lastMessage: userMessage, model: "huggingface" }),
+          body: JSON.stringify({ messages: formatMessagesForApi(newMessages), lastMessage: userMessage, model: "pollinations" }),
         });
 
         if (!response.ok) throw new Error(`Error: ${response.status}`);
@@ -419,66 +312,6 @@ export default function Chat() {
     }
   };
 
-  const renderComparison = (comp: ComparisonResult) => (
-    <div key={comp.id} className="mx-auto max-w-3xl">
-      <p className="text-xs text-muted-foreground mb-3 text-center">
-        Perbandingan: <span className="font-medium text-foreground">"{comp.prompt}"</span>
-      </p>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/40">
-            <div className="h-2 w-2 rounded-full bg-orange-400" />
-            <span className="text-xs font-semibold">Stable Diffusion</span>
-            <span className="ml-auto text-[10px] text-muted-foreground">HuggingFace</span>
-          </div>
-          <div className="aspect-square bg-muted/20 flex items-center justify-center">
-            {comp.huggingface?.loading ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="flex gap-1">
-                  {[0, 150, 300].map((delay) => (
-                    <span key={delay} className="h-2 w-2 rounded-full bg-orange-400 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-                  ))}
-                </div>
-                <span className="text-xs text-muted-foreground">Generating...</span>
-              </div>
-            ) : comp.huggingface?.error ? (
-              <p className="text-xs text-destructive px-3 text-center">{comp.huggingface.error}</p>
-            ) : comp.huggingface?.imageBase64 ? (
-              <img src={`data:${comp.huggingface.mimeType};base64,${comp.huggingface.imageBase64}`} alt="HuggingFace result" className="w-full h-full object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/40">
-            <div className="h-2 w-2 rounded-full bg-violet-400" />
-            <span className="text-xs font-semibold">Flux</span>
-            <span className="ml-auto text-[10px] text-muted-foreground">Pollinations</span>
-          </div>
-          <div className="aspect-square bg-muted/20 flex items-center justify-center">
-            {comp.pollinations?.loading ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="flex gap-1">
-                  {[0, 150, 300].map((delay) => (
-                    <span key={delay} className="h-2 w-2 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-                  ))}
-                </div>
-                <span className="text-xs text-muted-foreground">Generating...</span>
-              </div>
-            ) : comp.pollinations?.error ? (
-              <p className="text-xs text-destructive px-3 text-center">{comp.pollinations.error}</p>
-            ) : comp.pollinations?.imageUrl ? (
-              <PollinationsImage src={comp.pollinations.imageUrl} alt="Pollinations result" className="w-full h-full object-cover" />
-            ) : null}
-          </div>
-        </div>
-      </div>
-      <p className="text-[10px] text-muted-foreground text-right mt-1">
-        {comp.timestamp.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
-      </p>
-    </div>
-  );
-
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col bg-background">
       {/* Header */}
@@ -490,48 +323,9 @@ export default function Chat() {
           <p className="text-sm font-semibold leading-none">Jabat AI</p>
           <p className="text-xs text-muted-foreground">Asisten Desain Konveksi</p>
         </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
-            <button onClick={() => setMode("compare")}
-              className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
-                mode === "compare" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}>
-              <GitCompare className="h-3.5 w-3.5" />
-              Perbandingan
-            </button>
-            <button onClick={() => setMode("single")}
-              className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
-                mode === "single" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}>
-              <Zap className="h-3.5 w-3.5" />
-              Single
-            </button>
-          </div>
-
-          {mode === "single" && (
-            <div className="flex rounded-lg border border-border bg-muted/40 p-0.5">
-              <button onClick={() => setSelectedModel("huggingface")}
-                className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
-                  selectedModel === "huggingface" ? "bg-orange-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                )}>
-                <span className="h-2 w-2 rounded-full bg-orange-400" />
-                Stable Diffusion
-              </button>
-              <button onClick={() => setSelectedModel("pollinations")}
-                className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
-                  selectedModel === "pollinations" ? "bg-violet-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                )}>
-                <span className="h-2 w-2 rounded-full bg-violet-400" />
-                Flux
-              </button>
-            </div>
-          )}
-
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-muted-foreground">Online</span>
-          </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs text-muted-foreground">Online</span>
         </div>
       </div>
 
@@ -576,8 +370,6 @@ export default function Chat() {
             </div>
           ))}
 
-          {comparisons.map((comp) => renderComparison(comp))}
-
           {isLoading && (
             <div className="flex gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
@@ -589,9 +381,7 @@ export default function Chat() {
                     <span key={delay} className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${delay}ms` }} />
                   ))}
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  {mode === "compare" ? "Membandingkan dua model..." : "Membuat desain..."}
-                </span>
+                <span className="text-xs text-muted-foreground">Membuat desain...</span>
               </div>
             </div>
           )}
@@ -599,23 +389,6 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
       </div>
-
-      {/* Example prompts */}
-      {messages.length === 1 && messages[0].id === "welcome" && !isLoadingHistory && (
-        <div className="border-t border-border bg-muted/30 px-4 py-3">
-          <div className="mx-auto max-w-3xl">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">💡 Coba contoh prompt:</p>
-            <div className="flex flex-wrap gap-2">
-              {examplePrompts.map((prompt, i) => (
-                <button key={i} onClick={() => setInput(`/generate ${prompt}`)}
-                  className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted hover:border-primary/40">
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Image preview */}
       {previewImage && (
@@ -644,7 +417,7 @@ export default function Chat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={mode === "compare" ? "Gunakan /generate untuk membandingkan dua model..." : `Gunakan /generate dengan ${selectedModel === "huggingface" ? "Stable Diffusion" : "Flux"}...`}
+              placeholder="Ketik /buatkan lalu deskripsi desain Anda..."
               className="min-h-[42px] max-h-32 resize-none rounded-xl bg-background pr-4 text-sm"
               rows={1}
               disabled={isLoading || isLoadingHistory}
