@@ -9,13 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
-const colorMap: Record<string, string> = {
-  Putih: "bg-white border border-gray-300",
-  Hitam: "bg-gray-900",
-  Navy: "bg-blue-900",
-  Maroon: "bg-red-900",
-  "Abu-abu": "bg-gray-500",
-};
+
 
 export default function Catalog() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -189,18 +183,17 @@ function ProductCard({ product, delay }: { product: Product; delay: number }) {
             <p className="text-sm font-medium text-foreground">Warna: {selectedColor}</p>
             <div className="flex flex-wrap gap-2">
               {product.colors.map((color) => (
-                <button
+                <Badge
                   key={color}
-                  onClick={() => setSelectedColor(color)}
+                  variant={selectedColor === color ? "default" : "outline"}
                   className={cn(
-                    "h-8 w-8 rounded-full transition-all",
-                    colorMap[color] ?? "bg-gray-300",
-                    selectedColor === color
-                      ? "ring-2 ring-primary ring-offset-2"
-                      : "hover:ring-2 hover:ring-muted-foreground hover:ring-offset-1"
+                    "cursor-pointer px-3 py-1 transition-all font-medium",
+                    selectedColor === color && "bg-primary text-primary-foreground shadow-sm"
                   )}
-                  title={color}
-                />
+                  onClick={() => setSelectedColor(color)}
+                >
+                  {color}
+                </Badge>
               ))}
             </div>
           </div>

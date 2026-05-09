@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Paperclip, X, Bot, User, Sparkles } from "lucide-react";
+import { Send, Bot, User, Sparkles } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/widgets/button";
@@ -13,6 +13,18 @@ import {
   type ChatMessage as DBChatMessage,
 } from "@/services/chat_service";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ShirtColor = "white" | "black" | "blue" | "red" | "green";
+
+interface ColorOption {
+  value: ShirtColor;
+  label: string;
+  hex: string;
+  textColor: string;
+  border: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant";
@@ -20,88 +32,96 @@ interface Message {
   imageUrl?: string;
   model?: "pollinations";
   timestamp: Date;
+  pendingPrompt?: string;
+  awaitingColorChoice?: boolean;
 }
 
 const WEBHOOK_URL = "/webhook-test/chat-design";
 
+const COLOR_OPTIONS: ColorOption[] = [
+  { value: "white", label: "Putih", hex: "#FFFFFF", textColor: "#374151", border: "#D1D5DB" },
+  { value: "black", label: "Hitam", hex: "#1F2937", textColor: "#FFFFFF", border: "#1F2937" },
+  { value: "blue",  label: "Biru",  hex: "#2563EB", textColor: "#FFFFFF", border: "#2563EB" },
+  { value: "red",   label: "Merah", hex: "#DC2626", textColor: "#FFFFFF", border: "#DC2626" },
+  { value: "green", label: "Hijau", hex: "#16A34A", textColor: "#FFFFFF", border: "#16A34A" },
+];
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const formatMessagesForApi = (messages: Message[]) =>
   messages
-    .filter((msg) => !msg.imageUrl)
+    .filter((m) => !m.imageUrl && !m.awaitingColorChoice)
     .map(({ role, content }) => ({ role, parts: [{ text: content }] }));
 
-const fixImageUrl = (url: string): string =>
-  url.startsWith("=") ? url.slice(1) : url;
+// ─── ColorPickerBubble ────────────────────────────────────────────────────────
 
-function PollinationsImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
-  const [imgKey, setImgKey] = useState(0);
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
-  const attemptRef = useRef(0);
-  const maxRetries = 12;
-  const retryDelay = 5000;
+function ColorPickerBubble({
+  prompt,
+  onSelect,
+  disabled,
+}: {
+  prompt: string;
+  onSelect: (color: ShirtColor) => void;
+  disabled: boolean;
+}) {
+  const [selected, setSelected] = useState<ShirtColor | null>(null);
 
-  useEffect(() => {
-    setStatus("loading");
-    attemptRef.current = 0;
-    setImgKey(0);
-  }, [src]);
-
-  const handleError = () => {
-    if (attemptRef.current < maxRetries) {
-      attemptRef.current += 1;
-      setTimeout(() => setImgKey((k) => k + 1), retryDelay);
-    } else {
-      setStatus("error");
-    }
+  const handleClick = (color: ShirtColor) => {
+    if (disabled || selected) return;
+    setSelected(color);
+    onSelect(color);
   };
 
-  const directUrl = src.startsWith("/pollinations")
-    ? src.replace("/pollinations", "https://image.pollinations.ai")
-    : src;
-
-  if (status === "error") {
-    return (
-      <div className="flex flex-col items-center gap-2 px-3 text-center">
-        <p className="text-xs text-destructive">Gagal memuat gambar</p>
-        <a href={directUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-violet-400 underline">
-          Buka di tab baru ↗
-        </a>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative w-full h-full min-h-[200px]">
-      {status === "loading" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10">
-          <div className="flex gap-1">
-            {[0, 150, 300].map((delay) => (
-              <span key={delay} className="h-2 w-2 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-            ))}
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {attemptRef.current > 0 ? `Menunggu... (${attemptRef.current}/${maxRetries})` : "Generating..."}
-          </span>
-        </div>
+    <div className="flex flex-col gap-3">
+      <p className="text-sm leading-relaxed">
+        Desain <span className="font-semibold">"{prompt}"</span> siap dibuat! 🎨
+        <br />
+        <span className="text-xs text-muted-foreground">Pilih warna dasar baju:</span>
+      </p>
+
+      <div className="flex flex-wrap gap-2">
+        {COLOR_OPTIONS.map((opt) => {
+          const isSelected = selected === opt.value;
+          const isDone = selected !== null;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => handleClick(opt.value)}
+              disabled={isDone}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border transition-all duration-150",
+                isSelected ? "ring-2 ring-primary ring-offset-2 scale-105" : "hover:scale-105 active:scale-95",
+                isDone && !isSelected ? "opacity-35 cursor-not-allowed" : "cursor-pointer shadow-sm"
+              )}
+              style={{
+                background: opt.hex,
+                color: opt.textColor,
+                borderColor: opt.border,
+              }}
+            >
+              {isSelected && <span>✓</span>}
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <p className="text-xs text-muted-foreground animate-pulse">
+          Sedang membuat mockup, mohon tunggu...
+        </p>
       )}
-      <img
-        key={imgKey}
-        src={`${directUrl}&_r=${imgKey}`}
-        alt={alt}
-        className={className}
-        style={{ opacity: status === "loaded" ? 1 : 0, position: status === "loaded" ? "relative" : "absolute" }}
-        onLoad={() => setStatus("loaded")}
-        onError={handleError}
-      />
     </div>
   );
 }
 
-const callWebhook = async (prompt: string, messages: Message[]) => {
-  const lastMessage: Message = {
+// ─── Webhook ──────────────────────────────────────────────────────────────────
+
+const callWebhook = async (prompt: string, color: ShirtColor, messages: Message[]) => {
+  const lastMessage = {
     id: Date.now().toString(),
-    role: "user",
+    role: "user" as const,
     content: `/buatkan ${prompt}`,
     timestamp: new Date(),
   };
@@ -109,7 +129,12 @@ const callWebhook = async (prompt: string, messages: Message[]) => {
   const response = await fetch(WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
-    body: JSON.stringify({ messages: formatMessagesForApi(messages), lastMessage, model: "pollinations" }),
+    body: JSON.stringify({
+      messages: formatMessagesForApi(messages),
+      lastMessage,
+      model: "pollinations",
+      shirtColor: color,
+    }),
   });
 
   if (!response.ok) throw new Error(`Error: ${response.status}`);
@@ -131,10 +156,12 @@ const INITIAL_MESSAGES: Message[] = [
   {
     id: "welcome",
     role: "assistant",
-    content: "Halo! Saya adalah Jabat AI 🎨\n\nKetik /buatkan diikuti deskripsi desain Anda, dan saya akan membuatkan gambarnya!\n\nContoh: /buatkan kucing biru",
+    content: "Halo! Saya adalah Jabat AI 🎨\n\nKetik /buatkan diikuti deskripsi desain Anda. Setelah itu pilih warna baju sesuai keinginan, lalu saya buatkan mockupnya!\n\nContoh: /buatkan kucing biru",
     timestamp: new Date(),
   },
 ];
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Chat() {
   const location = useLocation();
@@ -144,13 +171,9 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const sessionCreatedRef = useRef(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -161,11 +184,8 @@ export default function Chat() {
 
   useEffect(() => {
     if (!userId) return;
-    if (locationState?.sessionId) {
-      loadSession(locationState.sessionId);
-    } else if (locationState?.newSession) {
-      resetToNewChat();
-    }
+    if (locationState?.sessionId) loadSession(locationState.sessionId);
+    else if (locationState?.newSession) resetToNewChat();
   }, [userId, locationState?.sessionId, locationState?.newSession]);
 
   const resetToNewChat = () => {
@@ -201,17 +221,60 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPreviewImage(reader.result as string);
-    reader.readAsDataURL(file);
+  // ── Color selected by user ──────────────────────────────────────────────────
+  const handleColorSelected = async (messageId: string, prompt: string, color: ShirtColor) => {
+    setMessages((prev) =>
+      prev.map((m) => m.id === messageId ? { ...m, awaitingColorChoice: false } : m)
+    );
+    setIsLoading(true);
+
+    const sessionId = await ensureSession();
+    const colorLabel = COLOR_OPTIONS.find((c) => c.value === color)?.label ?? color;
+
+    if (userId && sessionId) {
+      await saveMessage({ sessionId, userId, role: "user", content: `Pilih warna: ${colorLabel}` });
+    }
+
+    try {
+      const data = await callWebhook(prompt, color, messages);
+
+      if (data.imageBase64) {
+        const imgUrl = `data:${data.mimeType || "image/jpeg"};base64,${data.imageBase64}`;
+        const content = `Mockup "${prompt}" — ${colorLabel}`;
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: "assistant",
+            content,
+            imageUrl: imgUrl,
+            model: "pollinations",
+            timestamp: new Date(),
+          },
+        ]);
+
+        if (userId && sessionId)
+          await saveMessage({ sessionId, userId, role: "assistant", content, imageUrl: imgUrl, model: "pollinations" });
+      } else {
+        throw new Error("Tidak ada gambar di respons.");
+      }
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `Maaf, gagal membuat mockup: ${error instanceof Error ? error.message : "Unknown error"}`,
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const isBuatkanCommand = (text: string) =>
-    text.trim().toLowerCase().startsWith("/buatkan");
-
+  // ── Send message ────────────────────────────────────────────────────────────
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -219,86 +282,70 @@ export default function Chat() {
       id: Date.now().toString(),
       role: "user",
       content: input,
-      imageUrl: previewImage ?? undefined,
       timestamp: new Date(),
     };
 
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setPreviewImage(null);
-    setIsLoading(true);
 
-    const isGenerate = isBuatkanCommand(input);
+    const isGenerate = input.trim().toLowerCase().startsWith("/buatkan");
     const cleanPrompt = input.replace(/\/buatkan/i, "").trim();
-
     const sessionId = await ensureSession();
 
     if (userId && sessionId) {
-      await saveMessage({
-        sessionId,
-        userId,
-        role: "user",
-        content: input,
-        imageUrl: previewImage ?? undefined,
-      });
-
-      const isFirstMessage = messages.length === 1 && messages[0].id === "welcome";
-      if (isFirstMessage) {
-        await updateSessionTitle(sessionId, cleanPrompt || input);
-      }
+      await saveMessage({ sessionId, userId, role: "user", content: input });
+      const isFirst = messages.length === 1 && messages[0].id === "welcome";
+      if (isFirst) await updateSessionTitle(sessionId, cleanPrompt || input);
     }
 
-    try {
-      if (isGenerate) {
-        const data = await callWebhook(cleanPrompt, newMessages);
-
-        let finalImageUrl: string | undefined;
-        if (data.imageUrl) finalImageUrl = fixImageUrl(data.imageUrl);
-        else if (data.imageBase64) finalImageUrl = `data:${data.mimeType || "image/jpeg"};base64,${data.imageBase64}`;
-
-        const content = finalImageUrl ? `Hasil desain untuk: "${cleanPrompt}"` : "Maaf, gagal membuat gambar.";
-
-        const assistantMessage: Message = {
-          id: Date.now().toString(),
+    if (isGenerate) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `picker-${Date.now()}`,
           role: "assistant",
-          content,
-          imageUrl: finalImageUrl,
-          model: "pollinations",
+          content: "",
+          pendingPrompt: cleanPrompt,
+          awaitingColorChoice: true,
           timestamp: new Date(),
-        };
+        },
+      ]);
+      return;
+    }
 
-        setMessages((prev) => [...prev, assistantMessage]);
+    // Plain chat
+    setIsLoading(true);
+    try {
+      const response = await fetch(WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        body: JSON.stringify({
+          messages: formatMessagesForApi([...messages, userMessage]),
+          lastMessage: userMessage,
+          model: "pollinations",
+        }),
+      });
+      if (!response.ok) throw new Error(`Error: ${response.status}`);
+      const text = await response.text();
+      if (!text.trim()) throw new Error("Empty response");
+      const data = JSON.parse(text);
+      const chatContent = data.content || "Maaf, tidak bisa memproses itu.";
 
-        if (userId && sessionId) {
-          await saveMessage({ sessionId, userId, role: "assistant", content, imageUrl: finalImageUrl, model: "pollinations" });
-        }
-      } else {
-        const response = await fetch(WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
-          body: JSON.stringify({ messages: formatMessagesForApi(newMessages), lastMessage: userMessage, model: "pollinations" }),
-        });
-
-        if (!response.ok) throw new Error(`Error: ${response.status}`);
-        const text = await response.text();
-        if (!text.trim()) throw new Error("Empty response");
-        const data = JSON.parse(text);
-
-        const chatContent = data.content || "Maaf, tidak bisa memproses itu.";
-        setMessages((prev) => [
-          ...prev,
-          { id: Date.now().toString(), role: "assistant", content: chatContent, timestamp: new Date() },
-        ]);
-
-        if (userId && sessionId) {
-          await saveMessage({ sessionId, userId, role: "assistant", content: chatContent });
-        }
-      }
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now().toString(), role: "assistant", content: chatContent, timestamp: new Date() },
+      ]);
+      if (userId && sessionId)
+        await saveMessage({ sessionId, userId, role: "assistant", content: chatContent });
     } catch (error) {
       setMessages((prev) => [
         ...prev,
-        { id: Date.now().toString(), role: "assistant", content: `Maaf, terjadi kesalahan: ${error instanceof Error ? error.message : "Unknown error"}`, timestamp: new Date() },
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `Maaf, terjadi kesalahan: ${error instanceof Error ? error.message : "Unknown error"}`,
+          timestamp: new Date(),
+        },
       ]);
     } finally {
       setIsLoading(false);
@@ -306,10 +353,7 @@ export default function Chat() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
   return (
@@ -325,12 +369,11 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Loading history */}
       {isLoadingHistory && (
         <div className="flex items-center justify-center gap-2 py-3 bg-muted/30 border-b border-border">
           <div className="flex gap-1">
-            {[0, 150, 300].map((delay) => (
-              <span key={delay} className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+            {[0, 150, 300].map((d) => (
+              <span key={d} className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${d}ms` }} />
             ))}
           </div>
           <span className="text-xs text-muted-foreground">Memuat riwayat chat...</span>
@@ -342,26 +385,50 @@ export default function Chat() {
         <div className="mx-auto max-w-3xl space-y-6">
           {messages.map((message) => (
             <div key={message.id} className={cn("flex gap-3", message.role === "user" ? "flex-row-reverse" : "flex-row")}>
-              <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+              <div className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
                 message.role === "assistant" ? "bg-primary text-primary-foreground" : "bg-muted border border-border"
               )}>
                 {message.role === "assistant" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4 text-muted-foreground" />}
               </div>
-              <div className={cn("flex max-w-[78%] flex-col gap-2 rounded-2xl px-4 py-3 text-sm shadow-sm",
-                message.role === "assistant" ? "bg-card border border-border text-foreground rounded-tl-sm" : "bg-primary text-primary-foreground rounded-tr-sm"
+
+              <div className={cn(
+                "flex flex-col gap-2 rounded-2xl px-4 py-3 text-sm shadow-sm max-w-[78%]",
+                message.role === "assistant"
+                  ? "bg-card border border-border text-foreground rounded-tl-sm"
+                  : "bg-primary text-primary-foreground rounded-tr-sm"
               )}>
-                {message.imageUrl && message.role === "user" && (
-                  <img src={message.imageUrl} alt="Uploaded" className="mb-1 max-h-40 w-auto rounded-lg object-cover" />
+                {/* Color picker */}
+                {message.awaitingColorChoice && message.pendingPrompt ? (
+                  <ColorPickerBubble
+                    prompt={message.pendingPrompt}
+                    onSelect={(color) => handleColorSelected(message.id, message.pendingPrompt!, color)}
+                    disabled={isLoading}
+                  />
+                ) : (
+                  message.content && <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 )}
-                <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+
+                {/* Mockup image */}
                 {message.imageUrl && message.role === "assistant" && (
                   <div className="mt-2 overflow-hidden rounded-xl border border-border">
-                    <img src={message.imageUrl} alt="Generated" className="w-full" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
+                    <img
+                      src={message.imageUrl}
+                      alt="Generated mockup"
+                      className="w-full"
+                      onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+                    />
                   </div>
                 )}
-                <span className={cn("text-[10px] self-end", message.role === "assistant" ? "text-muted-foreground" : "text-primary-foreground/60")}>
-                  {message.timestamp.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
-                </span>
+
+                {!message.awaitingColorChoice && (
+                  <span className={cn(
+                    "text-[10px] self-end",
+                    message.role === "assistant" ? "text-muted-foreground" : "text-primary-foreground/60"
+                  )}>
+                    {message.timestamp.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -373,11 +440,11 @@ export default function Chat() {
               </div>
               <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3 shadow-sm">
                 <div className="flex gap-1">
-                  {[0, 150, 300].map((delay) => (
-                    <span key={delay} className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                  {[0, 150, 300].map((d) => (
+                    <span key={d} className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${d}ms` }} />
                   ))}
                 </div>
-                <span className="text-xs text-muted-foreground">Membuat desain...</span>
+                <span className="text-xs text-muted-foreground">Membuat mockup...</span>
               </div>
             </div>
           )}
@@ -386,28 +453,9 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Image preview */}
-      {previewImage && (
-        <div className="border-t border-border bg-card px-4 pt-3">
-          <div className="mx-auto max-w-3xl">
-            <div className="relative inline-block">
-              <img src={previewImage} alt="Preview" className="h-16 w-16 rounded-lg object-cover border border-border" />
-              <button onClick={() => setPreviewImage(null)} className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow">
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Input */}
       <div className="border-t border-border bg-card px-4 py-4">
         <div className="mx-auto flex max-w-3xl gap-2">
-          <button onClick={() => fileInputRef.current?.click()}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-            <Paperclip className="h-4 w-4" />
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
           <div className="relative flex-1">
             <Textarea
               value={input}
@@ -419,7 +467,11 @@ export default function Chat() {
               disabled={isLoading || isLoadingHistory}
             />
           </div>
-          <Button onClick={handleSend} disabled={!input.trim() || isLoading || isLoadingHistory} className="h-10 w-10 shrink-0 rounded-xl p-0">
+          <Button
+            onClick={handleSend}
+            disabled={!input.trim() || isLoading || isLoadingHistory}
+            className="h-10 w-10 shrink-0 rounded-xl p-0"
+          >
             <Send className="h-4 w-4" />
           </Button>
         </div>
