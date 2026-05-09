@@ -141,6 +141,29 @@ export default function AdminOrders() {
     return matchSearch && matchStatus;
   });
 
+  const handleDownloadImage = async (e: React.MouseEvent<HTMLAnchorElement>, url: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Network response was not ok");
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = blobUrl;
+      a.download = `desain_${Date.now()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(blobUrl);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Gagal mendownload gambar secara langsung, membuka tab baru:", err);
+      // Fallback: buka di tab baru jika fetch gagal (biasanya karena CORS Strict)
+      window.open(url, "_blank");
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -330,11 +353,8 @@ export default function AdminOrders() {
             </button>
             <a
               href={zoomedImage}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-white/90 py-2 text-sm font-medium text-gray-700 hover:bg-white"
-              onClick={(e) => e.stopPropagation()}
+              className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-white/90 py-2 text-sm font-medium text-gray-700 hover:bg-white cursor-pointer"
+              onClick={(e) => handleDownloadImage(e, zoomedImage)}
             >
               Download Gambar
             </a>
@@ -409,12 +429,10 @@ export default function AdminOrders() {
                   </div>
                   <a
                     href={selectedOrder.design_image_url}
-                    download
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1.5 text-xs text-orange-500 hover:text-orange-700 font-medium"
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs text-orange-500 hover:text-orange-700 font-medium cursor-pointer"
+                    onClick={(e) => handleDownloadImage(e, selectedOrder.design_image_url!)}
                   >
-                    Download gambar desain ↗
+                    Download gambar desain ⬇
                   </a>
                 </div>
               )}
