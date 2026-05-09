@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/webhook-test/(.*)",
+      "destination": "https://oversoftly-untactile-joanna.ngrok-free.dev/webhook-test/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

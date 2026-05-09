@@ -323,10 +323,6 @@ export default function Chat() {
           <p className="text-sm font-semibold leading-none">Jabat AI</p>
           <p className="text-xs text-muted-foreground">Asisten Desain Konveksi</p>
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-xs text-muted-foreground">Online</span>
-        </div>
       </div>
 
       {/* Loading history */}

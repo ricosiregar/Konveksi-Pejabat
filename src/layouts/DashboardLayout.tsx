@@ -80,7 +80,6 @@ export function DashboardLayout() {
         </main>
       </div>
 
-      {/* ── Mobile Bottom Navigation Bar ──────────────────────── */}
       <nav className="fixed bottom-0 inset-x-0 z-30 md:hidden">
         {/* Frosted glass effect */}
         <div className="mx-3 mb-3 rounded-2xl bg-white/90 backdrop-blur-xl border border-orange-100 shadow-xl shadow-orange-100/50 px-2 py-2">

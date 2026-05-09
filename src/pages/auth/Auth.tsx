@@ -5,8 +5,10 @@
   import { Label } from "@/components/widgets/label";
   import { cn } from "@/lib/utils";
   import { supabase } from "@/lib/supabase";
+  import { useNavigate } from "react-router-dom";
 
   export default function Auth() {
+    const navigate = useNavigate();
     const [mode, setMode] = useState<"login" | "register">("login");
 
     // REGISTER STATE
@@ -72,30 +74,29 @@
         alert(error.message);
         return;
       }
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", data.user.id)
-    .single();
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", data.user.id)
+        .single();
 
-  const role = profile?.role || "user";
+      const role = profile?.role || "user";
 
-  // ✅ Simpan sebagai JSON
-  localStorage.setItem("user", JSON.stringify({
-    id: data.user.id,
-    email: data.user.email,
-    name: data.user.user_metadata?.full_name ?? "",
-    role: role,
-  }));
-  localStorage.setItem("role", role);
+      // ✅ Simpan sebagai JSON
+      localStorage.setItem("user", JSON.stringify({
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.user_metadata?.full_name ?? "",
+        role: role,
+      }));
+      localStorage.setItem("role", role);
 
       // Redirect berdasarkan role
-
-  if (role === "admin") {
-    window.location.href = "/admin";
-  } else {
-    window.location.href = "/";
-  }
+      if (role === "admin") {
+        navigate("/admin", { replace: true });
+      } else {
+        navigate("/", { replace: true });
+      }
     };
 
     return (
