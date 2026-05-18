@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/webhook-test/(.*)",
-      "destination": "https://n8n.konveksipejabat.my.id/webhook-test/$1"
+      "source": "/webhook/(.*)",
+      "destination": "https://n8n.konveksipejabat.my.id/webhook/$1"
     },
     {
       "source": "/(.*)",
