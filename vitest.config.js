@@ -13,9 +13,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/webhook-test': {
-        target: 'http://202.155.143.186:5678',
+        target: 'https://n8n.konveksipejabat.my.id',
         changeOrigin: true,
-        secure: false,
+        secure: true,
       }
     },
     cors: true,
