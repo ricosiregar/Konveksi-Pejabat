@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/webhook-test/(.*)",
-      "destination": "https://oversoftly-untactile-joanna.ngrok-free.dev/webhook-test/$1"
+      "destination": "http://202.155.143.186:5678/webhook-test/$1"
     },
     {
       "source": "/(.*)",
