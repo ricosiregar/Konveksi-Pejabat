@@ -13,22 +13,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/webhook-test': {
-        target: 'https://oversoftly-untactile-joanna.ngrok-free.dev',
+        target: 'https://n8n.konveksipejabat.my.id',
         changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('❌ Proxy error:', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('➡️  Proxying:', req.method, req.url);
-            proxyReq.setHeader('ngrok-skip-browser-warning', 'true');
-          });
-          proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('✅ Response:', proxyRes.statusCode, req.url);
-          });
-        }
+        secure: true,
       }
     },
     cors: true,
