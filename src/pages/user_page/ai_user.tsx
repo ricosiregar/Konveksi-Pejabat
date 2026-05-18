@@ -36,7 +36,7 @@ interface Message {
   awaitingColorChoice?: boolean;
 }
 
-const WEBHOOK_URL = "http://202.155.143.186:5678/webhook/chat-design";
+const WEBHOOK_URL = "https://n8n.konveksipejabat.my.id";
 
 const COLOR_OPTIONS: ColorOption[] = [
   { value: "white", label: "Putih", hex: "#FFFFFF", textColor: "#374151", border: "#D1D5DB" },
