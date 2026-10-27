@@ -53,7 +53,7 @@ export default function Cart() {
   useEffect(() => {
     const script = document.createElement("script");
     script.src = "https://app.sandbox.midtrans.com/snap/snap.js";
-    script.setAttribute("data-client-key", "Mid-client-J7JbnoRVhNRgNwMY");
+    script.setAttribute("data-client-key", import.meta.env.VITE_MIDTRANS_CLIENT_KEY);
     script.async = true;
     document.body.appendChild(script);
     return () => { document.body.removeChild(script); };
@@ -204,7 +204,7 @@ export default function Cart() {
 
       const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(
-        `https://yxurvjtpghxdupwkzvfb.supabase.co/functions/v1/create-payment`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment`,
         {
           method: "POST",
           headers: {
